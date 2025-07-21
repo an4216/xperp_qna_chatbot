@@ -65,7 +65,7 @@ st.markdown(f"""
 
 
 # 👉 타이틀 영역
-st.title("🤖 Xperp 문의 챗봇")
+st.title("Xperp 문의 챗봇")
 st.caption("Xperp 사용법이나 오류가 궁금하신가요? 저에게 물어보세요!")
 
 # 👉 환경 변수 로드 (.env 사용 시)
