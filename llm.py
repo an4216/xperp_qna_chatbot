@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
 
 from langchain.vectorstores import FAISS
-from langchain_community.document_loaders import TextLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
@@ -15,7 +15,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from config import answer_examples
-
+import os
 store = {}
 
 
@@ -28,17 +28,29 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
 def get_retriever():
     embedding = OpenAIEmbeddings(model='text-embedding-3-large')
 
-    # 예시로 하나의 텍스트 문서를 로딩 (나중에 음성 → 텍스트 변환 후 여기에 저장)
-    loader = TextLoader("docs/sample.txt", encoding='utf-8')
-    documents = loader.load()
+    documents = []
+    docs_dirs = ["docs/manual", "docs/qna"]
+
+    for docs_dir in docs_dirs:
+        for filename in os.listdir(docs_dir):
+            file_path = os.path.join(docs_dir, filename)
+
+            if filename.endswith(".txt"):
+                loader = TextLoader(file_path, encoding='utf-8')
+                documents.extend(loader.load())
+
+            elif filename.endswith(".pdf"):
+                loader = PyPDFLoader(file_path)
+                documents.extend(loader.load())
 
     # 문서 분할
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     split_docs = splitter.split_documents(documents)
 
-    # FAISS 벡터스토어 생성
+    # 벡터스토어 생성
     vectorstore = FAISS.from_documents(split_docs, embedding)
     retriever = vectorstore.as_retriever(search_kwargs={'k': 4})
+
     return retriever
 
 def get_history_retriever():
@@ -103,9 +115,9 @@ def get_rag_chain():
     system_prompt = (
         "당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.\n"
         "사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.\n"
-        "당신의 임무는 질문에 대해 문서에 포함된 질문(Q), 답변(A), 태그(T) 정보를 참고하여\n"
-        "가장 적절한 답변을 **간결하고 명확하게** 요약하여 제공하는 것입니다.\n\n"
-        "- 답변은 2~3문장 이내로 짧고 정확하게 작성합니다.\n"
+        "당신의 임무는 질문에 대해 문서에 포함된 질문(Q), 답변(A), 태그(T) 정보를 참고하거나, PDF메뉴얼을 참고하여,\n"
+        "가장 적절한 답변을 **상세하고 정확하게** 요약하여 제공하는 것입니다.\n\n"
+        "- 답변은 정확한 문서기반으로 매뉴얼 형식으로 으로 작성합니다.\n"
         "- 질문과 유사한 Q-A 문서가 있을 경우, 해당 A를 요약해 전달합니다.\n"
         "- 문서에 정확한 정보가 없거나 판단이 애매할 경우, 'XPERP에 관련된 상담만 확인 가능합니다.' 라고 답변합니다.\n"
         "- 과한 설명이나 불필요한 말투는 피하고, 정보 중심으로 응답하세요.\n\n"
