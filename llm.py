@@ -49,14 +49,14 @@ def get_retriever():
                 documents.extend(loader.load())
 
     # 문서 분할(청크)
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     split_docs = splitter.split_documents(documents)
 
     # ✅ 빈 문서 제거
     split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
 
     # ✅ 최대 청크 개수 제한 (예: 1000개)
-    MAX_CHUNKS = 1000
+    MAX_CHUNKS = 500
     if len(split_docs) > MAX_CHUNKS:
         split_docs = split_docs[:MAX_CHUNKS]
 
