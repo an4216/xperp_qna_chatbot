@@ -27,13 +27,15 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
 
 # 2. 문서 로드 + 벡터스토어 생성 + retriever 반환
 def get_retriever():
+    from tqdm import tqdm
+
     # OpenAI 임베딩 모델 정의
     embedding = OpenAIEmbeddings(model='text-embedding-3-large')
 
     documents = []
     docs_dirs = ["docs/manual", "docs/qna"]  # 매뉴얼/QA 폴더 둘 다 로드
 
-    # 폴더 내 모든 파일 탐색해서 문서 읽기
+    # 문서 로드
     for docs_dir in docs_dirs:
         for filename in os.listdir(docs_dir):
             file_path = os.path.join(docs_dir, filename)
@@ -50,19 +52,22 @@ def get_retriever():
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     split_docs = splitter.split_documents(documents)
 
-    # ✅ 빈 내용 또는 너무 짧은 텍스트 제거
+    # ✅ 빈 문서 제거
     split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
 
-    # FAISS 벡터스토어 생성
+    # ✅ 최대 청크 개수 제한 (예: 1000개)
+    MAX_CHUNKS = 1000
+    if len(split_docs) > MAX_CHUNKS:
+        split_docs = split_docs[:MAX_CHUNKS]
+
+    # ✅ FAISS 저장
     vectorstore = FAISS.from_documents(split_docs, embedding)
 
-
-    # 분할된 문서를 임베딩/FAISS 벡터스토어에 저장
-    vectorstore = FAISS.from_documents(split_docs, embedding)
-    # 상위 4개 검색하는 retriever 생성
+    # ✅ 검색기 생성
     retriever = vectorstore.as_retriever(search_kwargs={'k': 4})
 
     return retriever
+
 
 # 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
 def get_history_retriever():
