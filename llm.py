@@ -50,6 +50,13 @@ def get_retriever():
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     split_docs = splitter.split_documents(documents)
 
+    # ✅ 빈 내용 또는 너무 짧은 텍스트 제거
+    split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
+
+    # FAISS 벡터스토어 생성
+    vectorstore = FAISS.from_documents(split_docs, embedding)
+
+
     # 분할된 문서를 임베딩/FAISS 벡터스토어에 저장
     vectorstore = FAISS.from_documents(split_docs, embedding)
     # 상위 4개 검색하는 retriever 생성
