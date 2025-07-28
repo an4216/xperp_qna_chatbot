@@ -15,6 +15,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from config import answer_examples
 import os
+import pickle
 
 # 세션별 대화 히스토리 저장소 (메모리 dict)
 store = {}
@@ -26,47 +27,49 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
     return store[session_id]
 
 # 2. 문서 로드 + 벡터스토어 생성 + retriever 반환
+
+
 def get_retriever():
     from tqdm import tqdm
 
-    # OpenAI 임베딩 모델 정의
+    vectorstore_dir = "vectorstore"
+    os.makedirs(vectorstore_dir, exist_ok=True)
+
+    # ✅ 저장된 FAISS vectorstore가 있으면 로드
+    if os.path.exists(os.path.join(vectorstore_dir, "index.faiss")):
+        vectorstore = FAISS.load_local(vectorstore_dir, OpenAIEmbeddings(model='text-embedding-3-large'), allow_dangerous_deserialization=True)
+        return vectorstore.as_retriever(search_kwargs={'k': 4})
+
+    # ✅ 없으면 새로 임베딩
     embedding = OpenAIEmbeddings(model='text-embedding-3-large')
-
     documents = []
-    docs_dirs = ["docs/manual", "docs/qna"]  # 매뉴얼/QA 폴더 둘 다 로드
+    docs_dirs = ["docs/manual", "docs/qna"]
 
-    # 문서 로드
     for docs_dir in docs_dirs:
         for filename in os.listdir(docs_dir):
             file_path = os.path.join(docs_dir, filename)
-
             if filename.endswith(".txt"):
                 loader = TextLoader(file_path, encoding='utf-8')
                 documents.extend(loader.load())
-
             elif filename.endswith(".pdf"):
                 loader = PyPDFLoader(file_path)
                 documents.extend(loader.load())
 
-    # 문서 분할(청크)
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     split_docs = splitter.split_documents(documents)
-
-    # ✅ 빈 문서 제거
     split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
 
-    # ✅ 최대 청크 개수 제한 (예: 1000개)
     MAX_CHUNKS = 500
     if len(split_docs) > MAX_CHUNKS:
         split_docs = split_docs[:MAX_CHUNKS]
 
-    # ✅ FAISS 저장
     vectorstore = FAISS.from_documents(split_docs, embedding)
 
-    # ✅ 검색기 생성
-    retriever = vectorstore.as_retriever(search_kwargs={'k': 4})
+    # ✅ FAISS 전용 저장 방식 사용
+    vectorstore.save_local(vectorstore_dir)
 
-    return retriever
+    return vectorstore.as_retriever(search_kwargs={'k': 4})
+
 
 
 # 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
@@ -168,6 +171,7 @@ def get_rag_chain():
         "✅ 예상 질문:\n"
         "- 사용자가 이어서 궁금해할 수 있는 내용을 1~3개 문장으로 제시하세요.\n\n"
         "- qna와 매뉴얼에서 답변할 수 있는 내용을 발췌하여 제시하세요.\n\n"
+        "- qna와 매뉴얼에 나온 예상질문이 추가로 없다면, 예상질문을 생략해주세요.\n\n"
 
         "예시:\n"
         "✅ 질문에 대한 정식 답변:\n"
