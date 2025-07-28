@@ -50,10 +50,21 @@ def get_retriever():
             file_path = os.path.join(docs_dir, filename)
             if filename.endswith(".txt"):
                 loader = TextLoader(file_path, encoding='utf-8')
-                documents.extend(loader.load())
+                docs = loader.load()
+                manual_name = os.path.splitext(filename)[0]
+                for doc in docs:
+                    doc.metadata["source"] = manual_name
+                documents.extend(docs)
             elif filename.endswith(".pdf"):
                 loader = PyPDFLoader(file_path)
-                documents.extend(loader.load())
+                pages = loader.load()
+                for i, page in enumerate(pages):
+                    # 매뉴얼 이름 (확장자 제외)
+                    manual_name = os.path.splitext(filename)[0]
+                    page.metadata["source"] = manual_name  # ex: 입주자매뉴얼
+                    page.metadata["page"] = i + 1          # LangChain은 0-based, 사람이 보기 쉽게 +1
+                    documents.append(page)
+
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     split_docs = splitter.split_documents(documents)
@@ -174,13 +185,16 @@ def get_rag_chain():
         "- qna와 매뉴얼에 나온 예상질문이 추가로 없다면, 예상질문을 생략해주세요.\n\n"
 
         "✅ 매뉴얼 참조:\n"
-        "- 사용자의 질문과 관련된 내용이 매뉴얼에 포함되어 있다면 어떤 메뉴얼에서 참조했는지 정확히 기재한 후 아래 형식으로 작성하세요. 정확한 내용이 매뉴얼에 없다면 해당 항목은 생략하세요.:\n"
-        "  예: 입주자 매뉴얼 참조: 입주자 매뉴얼 15페이지를 참조하시면 전출 처리 절차에 대한 내용을 확인할 수 있습니다.\n"
-        "- 여러 페이지가 연관되어 있다면 각 페이지마다 내용을 간단히 요약해 주세요:\n"
+        "- 사용자의 질문과 관련된 내용이 특정 매뉴얼의 특정 페이지에 존재할 경우, 문서의 메타데이터(source, page)를 참고하여 다음 형식으로 작성하세요.\n"
+        "- 답변 작성 시, 문서 내용이 정확히 어느 page에서 왔는지 인용하도록 노력하세요.:"
+        "  예: 매뉴얼 참조: '입주자 매뉴얼' 15페이지를 참조하시면 전출 처리 절차에 대한 내용을 확인할 수 있습니다.\n"
+        "- 여러 페이지가 관련되어 있다면 각 페이지마다 내용을 간단히 요약해 주세요:\n"
         "  예:\n"
         "    매뉴얼 참조:\n"
-        "    - 입주자 매뉴얼 15페이지: 전출 처리 절차\n"
-        "    - 입주자 매뉴얼 18페이지: 전출 및 전입자 정보 조회 방법\n"
+        "    - '입주자 매뉴얼' 15페이지: 전출 처리 절차\n"
+        "    - '입주자 매뉴얼' 18페이지: 전출 및 전입자 정보 조회 방법\n"
+        "- 반드시 문서의 source 및 page 메타데이터를 기반으로 작성하고, 메타데이터가 없는 경우에는 이 항목을 생략하세요.\n\n"
+
 
         "예시:\n"
         "✅ 질문에 대한 정식 답변:\n"
@@ -205,12 +219,12 @@ def get_rag_chain():
         "엑셀 업로드 시 A~F 열의 입력 규칙을 지켜야 하며, 항목코드는 반드시 [관리비부과처리] 화면에서 조회된 값이어야 합니다.\n"
         "또한, 계산 방법이 잘못 입력된 경우 시스템에서 오류 없이 반영되더라도 예상치 못한 부과 결과가 발생할 수 있으므로 사전 테스트가 권장됩니다.\n\n"
 
+        "✅ 매뉴얼 참조: 전출 처리에 대한 자세한 정보는 입주자 매뉴얼의 15페이지와 18페이지에서 확인할 수 있습니다. 15페이지에서는 전출 처리 절차가, 18페이지에서는 전출 및 전입자 정보 조회 방법이 설명되어 있습니다.\n\n"
+
         "✅ 예상 질문:\n"
         "- 엑셀 자료를 등록할 때 항목코드는 어디서 확인하나요?\n"
         "- 부과 후 수정은 어떻게 하나요?\n"
         "- 특정 세대만 별도금액을 제거할 수 있나요?\n\n"
-
-       "✅ 매뉴얼 참조: 전출 처리에 대한 자세한 정보는 매뉴얼의 15페이지와 18페이지에서 확인할 수 있습니다. 15페이지에서는 전출 처리 절차가, 18페이지에서는 전출 및 전입자 정보 조회 방법이 설명되어 있습니다.\n\n"
 
        "✅ 반드시 위 형식에 맞춰 응답을 구성하세요.\n"
        "✅ 질문과 직접 관련된 정보가 없는 경우에는 다음 중 한 문구를 자연스럽게 사용하세요:\n"
