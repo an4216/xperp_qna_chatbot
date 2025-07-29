@@ -38,7 +38,7 @@ def get_retriever():
     # ✅ 저장된 FAISS vectorstore가 있으면 로드
     if os.path.exists(os.path.join(vectorstore_dir, "index.faiss")):
         vectorstore = FAISS.load_local(vectorstore_dir, OpenAIEmbeddings(model='text-embedding-3-large'), allow_dangerous_deserialization=True)
-        return vectorstore.as_retriever(search_kwargs={'k': 2})
+        return vectorstore.as_retriever(search_kwargs={'k': 4})
 
     # ✅ 없으면 새로 임베딩
     embedding = OpenAIEmbeddings(model='text-embedding-3-large')
