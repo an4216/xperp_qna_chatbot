@@ -16,6 +16,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from config import answer_examples
 import os
 import pickle
+import time
 
 # 세션별 대화 히스토리 저장소 (메모리 dict)
 store = {}
@@ -270,23 +271,24 @@ def get_rag_chain():
 
     return conversational_rag_chain
 
-# 7. 최종 답변 생성 함수 (질문 → 답변)
+# 7. 최종 답변 생성 함수 (질문 → 답변 + 소요시간 표시)
 def get_ai_response(user_message):
-    # step 1: 사전 기반 질문 전처리
     dictionary_chain = get_dictionary_chain()
-    # step 2: RAG 문서기반 QA 체인
     rag_chain = get_rag_chain()
-    # step 3: 사전 체인 결과를 rag_chain의 input으로 연결
     tax_chain = {"input": dictionary_chain} | rag_chain
 
-    # step 4: 답변 생성 (streaming)
-    ai_response = tax_chain.stream(
-        {
-            "question": user_message
-        },
-        config={
-            "configurable": {"session_id": "abc123"}
-        },
+    # 스트리밍 생성기
+    stream = tax_chain.stream(
+        {"question": user_message},
+        config={"configurable": {"session_id": "abc123"}},
     )
 
-    return ai_response
+    # ⏱ 스트리밍 래퍼: 본문 토큰 그대로 흘리되, 마지막에 소요시간 한 줄 추가
+    def timed_stream():
+        start = time.perf_counter()
+        for chunk in stream:
+            yield chunk
+        elapsed = time.perf_counter() - start
+        yield f"\n\n⏱ {elapsed:.2f}s"
+
+    return timed_stream()
