@@ -24,10 +24,11 @@ import time
 # ===== 설정 =====
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_LLM = "llama2:latest"          # ollama pull gpt-oss:20b
-MODEL_EMBED = "nomic-embed-text"   # ollama pull nomic-embed-text
+#MODEL_EMBED = "nomic-embed-text"   # ollama pull nomic-embed-text
 TOP_K = 4
 VECTOR_DIR = "vectorstore"
 MAX_CHUNKS = 500
+MODEL_EMBED = "intfloat/multilingual-e5-large-instruct"
 
 # 세션별 대화 히스토리 저장소 (메모리 dict)
 store = {}
@@ -42,14 +43,24 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
 def get_retriever():
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
-    # Ollama Embeddings 인스턴스 (OpenAI Embeddings 대체)
+    # ── Device 자동 선택 (CUDA 있으면 사용)
+    device = "cpu"
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device = "cuda"
+    except Exception:
+        pass
+
+    # ── HuggingFace E5 임베딩 (권장 설정 포함)
     embedding = HuggingFaceEmbeddings(
-        model_name="intfloat/multilingual-e5-large-instruct"
+        model_name=MODEL_EMBED,
+        model_kwargs={"device": device},
+        encode_kwargs={"normalize_embeddings": True},  # E5 권장
     )
 
     index_path = os.path.join(VECTOR_DIR, "index.faiss")
     if os.path.exists(index_path):
-        # allow_dangerous_deserialization=True 필요 (FAISS 메타 로드)
         vectorstore = FAISS.load_local(
             VECTOR_DIR,
             embedding,
@@ -80,7 +91,6 @@ def get_retriever():
                     manual_name = os.path.splitext(filename)[0]
                     page.metadata["source"] = manual_name
                     page.metadata["page"] = i + 1
-                    # 출처 정보 삽입
                     citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
                     page.page_content += citation
                     documents.append(page)
@@ -94,6 +104,7 @@ def get_retriever():
     vectorstore = FAISS.from_documents(split_docs, embedding)
     vectorstore.save_local(VECTOR_DIR)
     return vectorstore.as_retriever(search_kwargs={"k": TOP_K})
+
 
 # 4. LLM(챗봇) 인스턴스 생성 (Ollama 사용)
 def get_llm(model: str = MODEL_LLM):
