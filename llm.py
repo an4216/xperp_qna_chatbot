@@ -6,7 +6,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 
 # ★ OpenAI → Ollama
 from langchain_ollama import ChatOllama
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 from langchain.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
@@ -43,9 +43,8 @@ def get_retriever():
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
     # Ollama Embeddings 인스턴스 (OpenAI Embeddings 대체)
-    embedding = OllamaEmbeddings(
-        model=MODEL_EMBED,
-        base_url=OLLAMA_HOST
+    embedding = HuggingFaceEmbeddings(
+        model_name="intfloat/multilingual-e5-large-instruct"
     )
 
     index_path = os.path.join(VECTOR_DIR, "index.faiss")
