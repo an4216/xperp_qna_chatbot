@@ -14,17 +14,34 @@ def get_image_base64(image_path):
 # 👉 로고 경로 설정 (assets 폴더 내)
 logo_base64 = get_image_base64("assets/m_logo.png")
 
-# 👉 상단 헤더 영역 구성 (고정 헤더 + spacer)
+# 👉 상단 헤더 영역 구성 (고정 헤더)
 st.markdown(f"""
     <style>
-    .header-left {{flex: 1; width: 100%;}}
+    :root {{
+        --header-h: 64px;
+        --footer-h: 48px;
+    }}
+
+    /* 본문 패딩으로 헤더/푸터 영역 확보 */
+    .main .block-container {{
+        padding-top: calc(var(--header-h) + 8px) !important;
+        padding-bottom: calc(var(--footer-h) + 96px) !important; /* 채팅 입력창 공간까지 고려 */
+    }}
+
+    /* 채팅 입력창을 푸터 위로 띄우기 */
+    [data-testid="stChatInput"] {{
+        margin-bottom: calc(var(--footer-h) + 8px) !important;
+    }}
+
     .aegisep-link {{color: #fff !important; border-radius: 8px !important; text-decoration: none !important; margin-left: auto; display: inline-flex; align-items: center;}}
     .aegisep-link:hover {{color: #262626 !important;}}
+
     .header-container {{
-        position: fixed;       /* ✅ 고정 */
-        top: 0; left: 0; right: 0;
-        z-index: 10000;
+        position: sticky;       /* ✅ 스크롤 고정 */
+        top: 0;
+        z-index: 100000;        /* 다른 요소 위에 */
         width: 100%;
+        height: var(--header-h);
         background-color: #002c5f;
         padding: 10px 20px;
         display: flex;
@@ -55,8 +72,6 @@ st.markdown(f"""
         background-color: white;
         color: #002c5f;
     }}
-    /* ✅ 헤더 높이만큼 여백 확보 (컨텐츠가 헤더 밑으로 숨지 않도록) */
-    .header-spacer {{ height: 64px; }}
     </style>
 
     <div class="header-container">
@@ -67,8 +82,8 @@ st.markdown(f"""
             </a>
         </div>
     </div>
-    <div class="header-spacer"></div>
 """, unsafe_allow_html=True)
+
 
 
 # 👉 타이틀 영역
@@ -99,24 +114,27 @@ if user_question := st.chat_input(placeholder="Xperp 사용법이나 오류에 �
             ai_message = st.write_stream(ai_response)
             st.session_state.message_list.append({"role": "ai", "content": ai_message})
 
-# 👉 고정 푸터 + 하단 여백
+# 👉 고정 푸터
 st.markdown("""
     <style>
     .app-footer {
         position: fixed;
         left: 0; right: 0; bottom: 0;
-        z-index: 10000;
+        height: var(--footer-h);
+        z-index: 1000000;              /* 채팅 입력창보다 위 */
         background: #f8f9fa;
         border-top: 1px solid #e6e6e6;
-        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 16px;
         text-align: center;
         font-size: 12px;
         color: #666;
     }
-    /* 푸터가 컨텐츠를 가리지 않도록 하단 여백 확보 */
-    .block-container { padding-bottom: 64px; }
     </style>
     <div class="app-footer">
         Xperp 문의챗봇은 실수를 할 수 있습니다. 중요한 정보는 매뉴얼을 참고하여 재차 확인하세요.
     </div>
 """, unsafe_allow_html=True)
+
