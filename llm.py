@@ -32,6 +32,10 @@ MODEL_LLM   = os.getenv("MODEL_LLM", "gemma3:latest")  # ollama pull gemma3:late
 TOP_K       = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
 
+#답변 접근임계치
+RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.18"))  # 0.15~0.20 권장
+USE_SCORE_THRESHOLD = os.getenv("USE_SCORE_THRESHOLD", "true").lower() == "true"
+
 # 세션별 대화 히스토리 저장소
 store = {}
 
@@ -130,7 +134,26 @@ def get_retriever():
     vectorstore = FAISS.from_documents(split_docs, embedding)
     vectorstore.save_local(VECTOR_DIR)
 
-    return vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+    # 2) 검색 전략 선택 (토글)
+    if USE_SCORE_THRESHOLD:
+        # ✅ 임계치 기반(문서 무관 질의 컷): 점수 낮으면 버림
+        return vectorstore.as_retriever(
+            search_type="similarity_score_threshold",
+            search_kwargs={
+                "k": TOP_K,
+                "score_threshold": RELEVANCE_THRESHOLD,  # 기본 0.18
+            },
+        )
+    else:
+        # ✅ MMR 기반(다양성+정확도 밸런스, 안전한 기본값)
+        return vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={
+                "k": TOP_K,
+                "fetch_k": max(32, TOP_K * 8),
+                "lambda_mult": 0.5,
+            },
+        )
 
 # 4. LLM(챗봇) 인스턴스 생성 → Ollama
 def get_llm():
