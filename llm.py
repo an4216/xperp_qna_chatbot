@@ -39,7 +39,6 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
         store[session_id] = ChatMessageHistory()
     return store[session_id]
 
-# 2. 문서 로드 + 벡터스토어 생성 + retriever 반환
 def get_retriever():
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
@@ -60,16 +59,60 @@ def get_retriever():
     )
 
     index_path = os.path.join(VECTOR_DIR, "index.faiss")
+
     if os.path.exists(index_path):
+        # 기존 인덱스 로드
         vectorstore = FAISS.load_local(
             VECTOR_DIR,
             embedding,
-            allow_dangerous_deserialization=True
+            allow_dangerous_deserialization=True,
         )
-       return vectorstore.as_retriever(
-           search_type="mmr",
-           search_kwargs={"k": TOP_K, "fetch_k": 25, "lambda_mult": 0.5}
-       )
+    else:
+        # 없으면 새로 생성
+        documents = []
+        docs_dirs = ["docs/manual", "docs/qna"]
+
+        for docs_dir in docs_dirs:
+            if not os.path.isdir(docs_dir):
+                continue
+            for filename in os.listdir(docs_dir):
+                file_path = os.path.join(docs_dir, filename)
+                if filename.endswith(".txt"):
+                    loader = TextLoader(file_path, encoding="utf-8")
+                    docs = loader.load()
+                    manual_name = os.path.splitext(filename)[0]
+                    for doc in docs:
+                        doc.metadata["source"] = manual_name
+                    documents.extend(docs)
+                elif filename.endswith(".pdf"):
+                    loader = PyPDFLoader(file_path)
+                    pages = loader.load()
+                    for i, page in enumerate(pages):
+                        manual_name = os.path.splitext(filename)[0]
+                        page.metadata["source"] = manual_name
+                        page.metadata["page"] = i + 1
+                        citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
+                        page.page_content += citation
+                        documents.append(page)
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=256, chunk_overlap=48)
+        split_docs = [
+            d for d in splitter.split_documents(documents)
+            if len(d.page_content.strip()) > 10
+        ]
+
+        if len(split_docs) > MAX_CHUNKS:
+            split_docs = split_docs[:MAX_CHUNKS]
+
+        vectorstore = FAISS.from_documents(split_docs, embedding)
+        vectorstore.save_local(VECTOR_DIR)
+
+    # ✅ 마지막에 한 번만 반환 (MMR 검색)
+    return vectorstore.as_retriever(
+        search_type="mmr",
+        search_kwargs={"k": TOP_K, "fetch_k": 25, "lambda_mult": 0.5},
+    )
+
 
 
     # 없으면 새로 생성
