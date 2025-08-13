@@ -293,15 +293,15 @@ def get_rag_chain():
 def get_ai_response(user_message):
     dictionary_chain = get_dictionary_chain()
     rag_chain = get_rag_chain()
+
+    # dictionary_chain 출력 → rag_chain의 input으로 연결
     tax_chain = {"input": dictionary_chain} | rag_chain
 
-    # 내부 스트림 생성
     inner_stream = tax_chain.stream(
-        {"question": user_message},
+        {"input": user_message},   # ✅ 'question' → 'input' 로 수정
         config={"configurable": {"session_id": "abc123"}},
     )
 
-    # 스트리밍 래퍼: 본문 스트림 그대로 흘리고, 마지막에 시간 한 줄 추가
     def timed_stream():
         start = time.perf_counter()
         for chunk in inner_stream:
