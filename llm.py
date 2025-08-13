@@ -66,7 +66,11 @@ def get_retriever():
             embedding,
             allow_dangerous_deserialization=True
         )
-        return vectorstore.as_retriever(search_kwargs={"k": TOP_K})
+       return vectorstore.as_retriever(
+           search_type="mmr",
+           search_kwargs={"k": TOP_K, "fetch_k": 25, "lambda_mult": 0.5}
+       )
+
 
     # 없으면 새로 생성
     documents = []
