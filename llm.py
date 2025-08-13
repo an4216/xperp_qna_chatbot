@@ -60,51 +60,56 @@ def get_retriever():
     )
 
     index_path = os.path.join(VECTOR_DIR, "index.faiss")
+
     if os.path.exists(index_path):
+        # 기존 인덱스 로드
         vectorstore = FAISS.load_local(
             VECTOR_DIR,
             embedding,
             allow_dangerous_deserialization=True
         )
-    return vectorstore.as_retriever(search_kwargs={"k": TOP_K})
+    else:
+        # 없으면 새로 생성
+        documents = []
+        docs_dirs = ["docs/manual", "docs/qna"]
 
-
-    # 없으면 새로 생성
-    documents = []
-    docs_dirs = ["docs/manual", "docs/qna"]
-
-    for docs_dir in docs_dirs:
-        if not os.path.isdir(docs_dir):
-            continue
-        for filename in os.listdir(docs_dir):
-            file_path = os.path.join(docs_dir, filename)
-            if filename.endswith(".txt"):
-                loader = TextLoader(file_path, encoding="utf-8")
-                docs = loader.load()
-                manual_name = os.path.splitext(filename)[0]
-                for doc in docs:
-                    doc.metadata["source"] = manual_name
-                documents.extend(docs)
-            elif filename.endswith(".pdf"):
-                loader = PyPDFLoader(file_path)
-                pages = loader.load()
-                for i, page in enumerate(pages):
+        for docs_dir in docs_dirs:
+            if not os.path.isdir(docs_dir):
+                continue
+            for filename in os.listdir(docs_dir):
+                file_path = os.path.join(docs_dir, filename)
+                if filename.endswith(".txt"):
+                    loader = TextLoader(file_path, encoding="utf-8")
+                    docs = loader.load()
                     manual_name = os.path.splitext(filename)[0]
-                    page.metadata["source"] = manual_name
-                    page.metadata["page"] = i + 1
-                    citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
-                    page.page_content += citation
-                    documents.append(page)
+                    for doc in docs:
+                        doc.metadata["source"] = manual_name
+                    documents.extend(docs)
+                elif filename.endswith(".pdf"):
+                    loader = PyPDFLoader(file_path)
+                    pages = loader.load()
+                    for i, page in enumerate(pages):
+                        manual_name = os.path.splitext(filename)[0]
+                        page.metadata["source"] = manual_name
+                        page.metadata["page"] = i + 1
+                        citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
+                        page.page_content += citation
+                        documents.append(page)
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=256, chunk_overlap=48)
-    split_docs = [d for d in splitter.split_documents(documents) if len(d.page_content.strip()) > 10]
+        splitter = RecursiveCharacterTextSplitter(chunk_size=256, chunk_overlap=48)
+        split_docs = [
+            d for d in splitter.split_documents(documents)
+            if len(d.page_content.strip()) > 10
+        ]
 
-    if len(split_docs) > MAX_CHUNKS:
-        split_docs = split_docs[:MAX_CHUNKS]
+        if len(split_docs) > MAX_CHUNKS:
+            split_docs = split_docs[:MAX_CHUNKS]
 
-    vectorstore = FAISS.from_documents(split_docs, embedding)
-    vectorstore.save_local(VECTOR_DIR)
+        vectorstore = FAISS.from_documents(split_docs, embedding)
+        vectorstore.save_local(VECTOR_DIR)
+
     return vectorstore.as_retriever(search_kwargs={"k": TOP_K})
+
 
 
 # 4. LLM(챗봇) 인스턴스 생성 (Ollama 사용)
