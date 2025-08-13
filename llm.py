@@ -25,7 +25,7 @@ import time
 # 환경설정 (요청하신 값)
 # =========================================
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL_LLM   = "gpt-oss:20b"        # ollama pull gpt-oss:20b
+MODEL_LLM   = "gemma3:latest"        # ollama pull gpt-oss:20b
 TOP_K       = 4
 VECTOR_DIR  = "vectorstore"
 
