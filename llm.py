@@ -338,7 +338,7 @@ def get_ai_response(user_message):
     tax_chain = rag_chain
     # 내부 스트림 생성
     inner_stream = tax_chain.stream(
-        {"question": user_message},
+        {"input": user_message},
         config={"configurable": {"session_id": "abc123"}},
     )
 
