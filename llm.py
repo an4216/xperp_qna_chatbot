@@ -33,7 +33,6 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_LLM   = os.getenv("MODEL_LLM", "gemma3:latest")  # ollama pull gemma3:latest
 TOP_K       = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
-REFUSAL_MSG = "죄송합니다. 업로드된 문서에서 근거를 찾지 못해 답변할 수 없습니다. 질문을 더 구체화하거나 관련 문서를 업로드해 주세요."
 # 세션별 대화 히스토리 저장소
 store = {}
 
@@ -178,47 +177,58 @@ def get_history_retriever():
 def get_rag_chain():
     llm = get_llm()
 
+    # ✅ few-shot 예시 클린업(기존대로)
     cleaned_examples = sanitize_examples(answer_examples)
 
-    example_prompt = ChatPromptTemplate.from_messages([
-        ("human", "{input}"),
-        ("ai", "{answer}"),
-    ])
+    example_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("human", "{input}"),
+            ("ai", "{answer}"),
+        ]
+    )
     few_shot_prompt = FewShotChatMessagePromptTemplate(
         example_prompt=example_prompt,
         examples=cleaned_examples,
     )
 
-    # 👉 프롬프트 '원문 그대로' 유지 (형님이 쓰던 system_prompt 그대로)
+    # ✅ 기존 프롬프트 구조 유지 (거부 규칙은 런타임 가드에서 처리)
     system_prompt = (
         "당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.\n"
         "사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.\n"
         "당신의 임무는 다음 문서를 기반으로 사용자의 질문에 대해 가장 정확하고 실무적인 답변을 제공하는 것입니다:\n"
         "1) 질문(Q)과 답변(A), 키워드(T)가 포함된 QnA 문서\n"
         "2) PDF 매뉴얼 및 기타 텍스트 설명 문서\n\n"
+
         "답변 구성 방식 (qna.txt 우선):\n"
         "- 사용자의 질문이 qna.txt 문서에 존재하거나 키워드를 참고하여 유사한 항목이 있다면, 해당 A 내용을 우선적으로 정리하여 답변의 맨 처음에 제공합니다.\n"
         "- 이후 PDF 매뉴얼 등 기타 문서를 참고하여 보완 설명을 이어서 작성합니다.\n"
         "- 문서에 따라 아래 형식을 기준으로 정돈된 답변을 가독성을 고려하여 작성하세요:\n\n"
+
         "✅ 질문에 대한 정식 답변:\n"
         "- 문서를 기반으로 질문의 개념, 목적, 동작 원리를 상세히 설명합니다.\n"
         "- 실무자가 오해할 수 있는 지점이나 자주 묻는 상황도 함께 안내합니다.\n\n"
+
         "✅ 간단 요약:\n"
         "- 핵심 개념을 1~2줄 이내로 정리합니다.\n\n"
+
         "✅ 사용법 안내:\n"
         "- 메뉴 경로, 설정 방법, 입력 절차를 문서에 있는 내용으로 단계별로 작성하세요.\n"
         "- 입력 예시나 화면 위치 정보도 가능한 경우 포함합니다.\n\n"
+
         "✅ 유의사항:\n"
         "- 실무 중 자주 발생하는 실수나 예외 상황, 기능 제약사항 등을 구체적으로 기술합니다.\n"
         "- 사용자가 놓치기 쉬운 조건이나 확인 항목도 함께 제시하세요.\n\n"
+
         "✅ 추가 설명이 필요한 경우:\n"
         "- 위 1~4 항목 이외에도 사용자가 실무에서 궁금해할 만한 내용을 예상하여 추가 설명을 제공하세요.\n"
         "- 예: 연동된 기능, 관련된 다른 메뉴, 설정 영향 범위, 오류 메시지 발생 원인 등\n"
         "- 반드시 문서를 참고하여 실제로 연관된 정보만 제시하세요.\n\n"
+
         "✅ 예상 질문:\n"
         "- 사용자가 이어서 궁금해할 수 있는 내용을 1~3개 문장으로 제시하세요.\n"
         "- qna와 매뉴얼에서 답변할 수 있는 내용을 발췌하여 제시하세요.\n"
         "- qna와 매뉴얼에 나온 예상질문이 추가로 없다면, 예상질문을 생략해주세요.\n\n"
+
         "✅ 매뉴얼 참조 출력 지침:\n"
         "- 아래 조건을 반드시 지켜야 합니다:\n"
         "  1. 반드시 'context'의 문서 metadata(source/page)에서만 출처를 가져오세요.\n"
@@ -226,6 +236,7 @@ def get_rag_chain():
         "  3. 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.\n"
         "  4. 각 설명이 어떤 문서에서 유래했는지 사용자에게 명확히 전달해야 합니다.\n"
         "- 사용법 안내 등의 답변 본문에서도 관련 설명 끝에 (출처: 문서명 n페이지) 형식으로 표시해 주세요.\n\n"
+
         "출력 형식 규칙(매우 중요):\n"
         "- 반드시 Markdown을 사용하세요.\n"
         "- 각 섹션 제목(예: '✅ 질문에 대한 정식 답변:') 뒤에는 빈 줄 1개를 두세요.\n"
@@ -235,35 +246,42 @@ def get_rag_chain():
         "{context}"
     )
 
-    qa_prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        few_shot_prompt,
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ])
+    qa_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            few_shot_prompt,
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ]
+    )
 
+    # ✅ 기존 히스토리 인지형 retriever 사용
     history_aware_retriever = get_history_retriever()
     question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
 
-    # ✅ 런타임 가드: 문서가 0개면 즉시 거부문구 반환, 아니면 QA 체인 실행
+    # ✅ 런타임 가드 입력 구성: retriever 결과가 context에 들어오게 함
     guard_input = RunnableMap({
         "input": lambda x: x["input"],
         "chat_history": lambda x: x.get("chat_history", []),
-        "context": history_aware_retriever,   # ← retriever가 리스트[Document] 반환
+        "context": history_aware_retriever,   # retriever → List[Document]
     })
 
+    # ✅ 문서가 0개면 바로 거부(LLM 호출 안 함)
+    REFUSAL_MSG = "죄송합니다. 업로드된 문서에서 근거를 찾지 못해 답변할 수 없습니다. 질문을 더 구체화하거나 관련 문서를 업로드해 주세요."
     refuse = RunnableLambda(lambda _: {"answer": REFUSAL_MSG})
+
+    # ✅ QA 체인의 문자열 출력을 {"answer": "..."} 로 감싸서 타입 일치
+    qa_as_dict = question_answer_chain | RunnableLambda(lambda s: {"answer": s})
 
     guarded_chain = (
         guard_input
         | RunnableBranch(
-            # 조건: context 비었으면 거부
-            (lambda x: len(x.get("context", [])) == 0, refuse),
-            # 기본: QA 실행
-            question_answer_chain
+            (lambda x: len(x.get("context", [])) == 0, refuse),  # 문서 없음 → 거부
+            qa_as_dict                                           # 문서 있음 → 정상 QA
         )
     )
 
+    # ✅ 세션별 히스토리 연결 + answer 키만 스트리밍
     conversational_rag_chain = RunnableWithMessageHistory(
         guarded_chain,
         get_session_history,
