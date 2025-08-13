@@ -1,3 +1,5 @@
+# llm.py
+
 # LangChain 및 관련 라이브러리 import
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, FewShotChatMessagePromptTemplate
@@ -19,19 +21,47 @@ from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 
 from config import answer_examples
 import os
-import pickle
 import time
+import re
 
 # =========================================
 # 환경설정
 # =========================================
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL_LLM   = "gemma3:latest"       # ollama pull gpt-oss:20b
-TOP_K       = 4
-VECTOR_DIR  = "vectorstore"
+MODEL_LLM   = os.getenv("MODEL_LLM", "gemma3:latest")  # ollama pull gemma3:latest
+TOP_K       = int(os.getenv("TOP_K", "4"))
+VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
 
 # 세션별 대화 히스토리 저장소
 store = {}
+
+# -------------------------------
+# 유틸: few-shot 예시의 '출처' 문구 제거
+# -------------------------------
+def sanitize_examples(examples: list[dict]) -> list[dict]:
+    """
+    Few-shot 예시에 포함된 '출처/페이지' 표기(형식 예시)를 제거해서,
+    실제 인용은 반드시 context의 metadata(source/page)로만 하도록 보조한다.
+    """
+    sanitized = []
+    for ex in examples:
+        inp = ex.get("input", "")
+        ans = ex.get("answer", "")
+
+        # 1) '✅ 매뉴얼 참조:' 라인 제거
+        ans = re.sub(r'^\s*✅\s*매뉴얼\s*참조:.*$', '', ans, flags=re.MULTILINE)
+
+        # 2) 본문 내 임의 출처 괄호 제거: (출처: ...페이지)
+        ans = re.sub(r'\(출처:\s*[^)]+\)', '', ans)
+
+        # 3) '...페이지 참조' 류 문구 제거 (선택적)
+        ans = re.sub(r'[(（]?\s*[^)\n]*매뉴얼[^)\n]*\d+\s*페이지\s*참조[)）]?', '', ans)
+
+        # 4) 여분 공백 정리
+        ans = re.sub(r'\n{3,}', '\n\n', ans).strip()
+
+        sanitized.append({"input": inp, "answer": ans})
+    return sanitized
 
 # 1. 세션별 대화 이력 객체 반환
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
@@ -48,7 +78,6 @@ def get_embeddings():
 
 # 2. 문서 로드 + 벡터스토어 생성 + retriever 반환
 def get_retriever():
-    from tqdm import tqdm
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
     # 저장된 벡터스토어 로드
@@ -70,20 +99,22 @@ def get_retriever():
             continue
         for filename in os.listdir(docs_dir):
             file_path = os.path.join(docs_dir, filename)
+            manual_name = os.path.splitext(filename)[0]
+
             if filename.endswith(".txt"):
                 loader = TextLoader(file_path, encoding='utf-8')
                 docs = loader.load()
-                manual_name = os.path.splitext(filename)[0]
                 for doc in docs:
                     doc.metadata["source"] = manual_name
                 documents.extend(docs)
+
             elif filename.endswith(".pdf"):
                 loader = PyPDFLoader(file_path)
                 pages = loader.load()
                 for i, page in enumerate(pages):
-                    manual_name = os.path.splitext(filename)[0]
                     page.metadata["source"] = manual_name
                     page.metadata["page"] = i + 1
+                    # ✅ 출처 정보 삽입 (실제 인용은 여기서만)
                     citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
                     page.page_content += citation
                     documents.append(page)
@@ -103,26 +134,19 @@ def get_retriever():
 
 # 4. LLM(챗봇) 인스턴스 생성 → Ollama
 def get_llm():
+    # 필요 시 num_predict, temperature, keep_alive 등 파라미터 추가 가능
     return ChatOllama(
         base_url=OLLAMA_HOST,
-        model=MODEL_LLM
+        model=MODEL_LLM,
+        # 아래는 선택: 속도/안정성 튜닝 예시
+        # temperature=0.2,
+        # top_p=0.9,
+        # num_predict=256,
+        # num_ctx=4096,
+        # keep_alive="30m",
     )
 
-# 5. 사용자의 질문을 사전 기반으로 전처리
-def get_dictionary_chain():
-    llm = get_llm()
-    prompt = ChatPromptTemplate.from_template("""
-        사용자의 질문을 보고, 우리의 사전을 참고해서 사용자의 질문을 변경해주세요.
-        만약 변경할 필요가 없다고 판단된다면, 사용자의 질문을 변경하지 않아도 됩니다.
-        그런 경우에는 질문만 리턴해주세요
-
-        질문: {question}
-    """.strip())
-
-    dictionary_chain = prompt | llm | StrOutputParser()
-    return dictionary_chain
-
-# 3. 대화 맥락을 반영한 retriever 반환
+# 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
 def get_history_retriever():
     llm = get_llm()
     retriever = get_retriever()
@@ -152,6 +176,9 @@ def get_history_retriever():
 def get_rag_chain():
     llm = get_llm()
 
+    # ✅ 예시를 클린업해서 사용 (예시 출처는 무시되도록)
+    cleaned_examples = sanitize_examples(answer_examples)
+
     example_prompt = ChatPromptTemplate.from_messages(
         [
             ("human", "{input}"),
@@ -160,9 +187,10 @@ def get_rag_chain():
     )
     few_shot_prompt = FewShotChatMessagePromptTemplate(
         example_prompt=example_prompt,
-        examples=answer_examples,
+        examples=cleaned_examples,
     )
 
+    # ✅ 실제 출처는 context의 metadata(source/page)만 사용하도록 명시
     system_prompt = (
         "당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.\n"
         "사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.\n"
@@ -196,21 +224,20 @@ def get_rag_chain():
         "- 반드시 문서를 참고하여 실제로 연관된 정보만 제시하세요.\n\n"
 
         "✅ 예상 질문:\n"
-        "- 사용자가 이어서 궁금해할 수 있는 내용을 1~3개 문장으로 제시하세요.\n\n"
-        "- qna와 매뉴얼에서 답변할 수 있는 내용을 발췌하여 제시하세요.\n\n"
+        "- 사용자가 이어서 궁금해할 수 있는 내용을 1~3개 문장으로 제시하세요.\n"
+        "- qna와 매뉴얼에서 답변할 수 있는 내용을 발췌하여 제시하세요.\n"
         "- qna와 매뉴얼에 나온 예상질문이 추가로 없다면, 예상질문을 생략해주세요.\n\n"
 
         "✅ 매뉴얼 참조 출력 지침:\n"
-        "- 정확하지 않은경우는 해당항목을 절대로 출력하지말고, 매뉴얼에 출처가 있는 경우, 반드시 다음과 같은 형식으로 명시하세요.:  \n"
-        "  ex: (출처: 해당 메뉴의 매뉴얼 15페이지)\n"
+        "- 정확하지 않은 경우는 해당 항목을 절대로 출력하지 말고, 매뉴얼에 출처가 있는 경우에만 다음 형식을 사용하세요: (출처: 문서명 n페이지)\n"
         "- 아래 조건을 반드시 지켜야 합니다:\n"
-        "  1. context에 명시된 문서 출처(source)와 페이지(page) 정보만 사용하세요.\n"
-        "  2. 출처나 페이지 정보가 누락된 경우 이 항목은 생략해야 합니다.\n"
+        "  1. 반드시 'context'의 문서 metadata(source/page)에서만 출처를 가져오세요.\n"
+        "  2. few-shot 예시(answer_examples) 안의 출처/페이지 표기는 모두 무시하세요. (형식 예시일 뿐 실제 인용 아님)\n"
         "  3. 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.\n"
         "  4. 각 설명이 어떤 문서에서 유래했는지 사용자에게 명확히 전달해야 합니다.\n"
         "\n"
-        "- 사용법안내 등의 답변 본문에서도 관련 설명 끝에 (출처: 해당 메뉴의 매뉴얼 15페이지) 형식으로 표시해 주세요.\n"
-        "- 본문내용에 참조한 문서가 있을경우 매뉴얼 참조 항목은 반드시 표시해주세요.\n"
+        "- 사용법 안내 등의 답변 본문에서도 관련 설명 끝에 (출처: 문서명 n페이지) 형식으로 표시해 주세요.\n"
+        "- 본문 내용에 참조한 문서가 있을 경우 매뉴얼 참조 항목은 반드시 표시해주세요.\n"
         "{context}"
     )
 
@@ -230,7 +257,7 @@ def get_rag_chain():
     conversational_rag_chain = RunnableWithMessageHistory(
         rag_chain,
         get_session_history,
-        input_messages_key="input",
+        input_messages_key="input",       # ✅ 'input' 키 사용
         history_messages_key="chat_history",
         output_messages_key="answer",
     ).pick('answer')
@@ -239,12 +266,10 @@ def get_rag_chain():
 
 # 7. 최종 답변 생성 함수
 def get_ai_response(user_message):
-    #dictionary_chain = get_dictionary_chain()
     rag_chain = get_rag_chain()
-    #tax_chain = {"input": dictionary_chain} | rag_chain
-    tax_chain = rag_chain
 
-    stream = tax_chain.stream(
+    # ✅ 'input' 키로 전달
+    stream = rag_chain.stream(
         {"input": user_message},
         config={"configurable": {"session_id": "abc123"}},
     )
