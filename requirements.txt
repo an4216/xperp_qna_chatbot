@@ -80,7 +80,7 @@ yarl==1.9.4
 faiss-cpu==1.7.4
 pypdf==5.8.0
 
-# HuggingFace 임베딩 관련 추가 패키지
+# HuggingFace 임베딩 관련 (langchain-huggingface 대신 사용)
 sentence-transformers==3.0.1
 transformers==4.43.2
 accelerate==0.33.0
