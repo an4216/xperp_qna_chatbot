@@ -32,10 +32,6 @@ MODEL_LLM   = os.getenv("MODEL_LLM", "gemma3:latest")  # ollama pull gemma3:late
 TOP_K       = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
 
-#답변 접근임계치
-RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.18"))  # 0.15~0.20 권장
-USE_SCORE_THRESHOLD = os.getenv("USE_SCORE_THRESHOLD", "true").lower() == "true"
-
 # 세션별 대화 히스토리 저장소
 store = {}
 
@@ -80,77 +76,61 @@ def get_embeddings():
         encode_kwargs={"normalize_embeddings": True}  # 코사인 유사도 안정화
     )
 
+# 2. 문서 로드 + 벡터스토어 생성 + retriever 반환
 def get_retriever():
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
-    # 1) 벡터스토어 로드 또는 생성
+    # 저장된 벡터스토어 로드
     if os.path.exists(os.path.join(VECTOR_DIR, "index.faiss")):
         vectorstore = FAISS.load_local(
             VECTOR_DIR,
             get_embeddings(),
             allow_dangerous_deserialization=True
         )
-    else:
-        embedding = get_embeddings()
-        documents = []
-        docs_dirs = ["docs/manual", "docs/qna"]
+        return vectorstore.as_retriever(search_kwargs={'k': TOP_K})
 
-        for docs_dir in docs_dirs:
-            if not os.path.isdir(docs_dir):
-                continue
-            for filename in os.listdir(docs_dir):
-                file_path = os.path.join(docs_dir, filename)
-                manual_name = os.path.splitext(filename)[0]
+    # 없으면 새로 생성
+    embedding = get_embeddings()
+    documents = []
+    docs_dirs = ["docs/manual", "docs/qna"]
 
-                if filename.endswith(".txt"):
-                    loader = TextLoader(file_path, encoding='utf-8')
-                    docs = loader.load()
-                    for doc in docs:
-                        doc.metadata["source"] = manual_name
-                    documents.extend(docs)
+    for docs_dir in docs_dirs:
+        if not os.path.isdir(docs_dir):
+            continue
+        for filename in os.listdir(docs_dir):
+            file_path = os.path.join(docs_dir, filename)
+            manual_name = os.path.splitext(filename)[0]
 
-                elif filename.endswith(".pdf"):
-                    loader = PyPDFLoader(file_path)
-                    pages = loader.load()
-                    for i, page in enumerate(pages):
-                        page.metadata["source"] = manual_name
-                        page.metadata["page"] = i + 1
-                        # ✅ 정확한 출처를 본문에 주입
-                        page.page_content += f"\n\n(출처: {manual_name} {i + 1}페이지)"
-                        documents.append(page)
+            if filename.endswith(".txt"):
+                loader = TextLoader(file_path, encoding='utf-8')
+                docs = loader.load()
+                for doc in docs:
+                    doc.metadata["source"] = manual_name
+                documents.extend(docs)
 
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        split_docs = splitter.split_documents(documents)
-        split_docs = [d for d in split_docs if len(d.page_content.strip()) > 10]
+            elif filename.endswith(".pdf"):
+                loader = PyPDFLoader(file_path)
+                pages = loader.load()
+                for i, page in enumerate(pages):
+                    page.metadata["source"] = manual_name
+                    page.metadata["page"] = i + 1
+                    # ✅ 출처 정보 삽입 (실제 인용은 여기서만)
+                    citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
+                    page.page_content += citation
+                    documents.append(page)
 
-        MAX_CHUNKS = 500
-        if len(split_docs) > MAX_CHUNKS:
-            split_docs = split_docs[:MAX_CHUNKS]
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+    split_docs = splitter.split_documents(documents)
+    split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
 
-        vectorstore = FAISS.from_documents(split_docs, embedding)
-        vectorstore.save_local(VECTOR_DIR)
+    MAX_CHUNKS = 500
+    if len(split_docs) > MAX_CHUNKS:
+        split_docs = split_docs[:MAX_CHUNKS]
 
-    # 2) 검색 전략 선택 (토글)
-    if USE_SCORE_THRESHOLD:
-        # ✅ 임계치 기반(문서 무관 질의 컷): 점수 낮으면 버림
-        return vectorstore.as_retriever(
-            search_type="similarity_score_threshold",
-            search_kwargs={
-                "k": TOP_K,
-                "score_threshold": RELEVANCE_THRESHOLD,  # 기본 0.18
-            },
-        )
-    else:
-        # ✅ MMR 기반(다양성+정확도 밸런스, 안전한 기본값)
-        return vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={
-                "k": TOP_K,
-                "fetch_k": max(32, TOP_K * 8),
-                "lambda_mult": 0.5,
-            },
-        )
+    vectorstore = FAISS.from_documents(split_docs, embedding)
+    vectorstore.save_local(VECTOR_DIR)
 
+    return vectorstore.as_retriever(search_kwargs={'k': TOP_K})
 
 # 4. LLM(챗봇) 인스턴스 생성 → Ollama
 def get_llm():
@@ -218,15 +198,6 @@ def get_rag_chain():
         "1) 질문(Q)과 답변(A), 키워드(T)가 포함된 QnA 문서\n"
         "2) PDF 매뉴얼 및 기타 텍스트 설명 문서\n\n"
 
-        " 도메인/문서 관련성 검사 및 무응답 규칙(매우 중요):\n"
-        "- 아래 조건 중 하나라도 해당하면, 다음 문장 **한 줄만** 출력하세요:\n"
-        "  '죄송합니다. 해당 내용은 현재 안내드릴 수 있는 범위를 벗어난 항목입니다.'\n"
-        "- 조건:\n"
-        "  1) 질문이 Xperp의 사용법/기능/오류 해결과 직접 관련이 없다.\n"
-        "  2) 제공된 context에서 질문과 직접적으로 일치하는 근거가 확인되지 않는다(추측/환상 금지).\n"
-        "  3) 여행/요리/건강/일반 상식/개인적 조언 등 도메인 외 주제다.\n"
-        "- 위 경우에는 어떤 섹션(✅ …)도 출력하지 말고, **사과 문구 한 줄만** 출력합니다.\n\n"
-
         "답변 구성 방식 (qna.txt 우선):\n"
         "- 사용자의 질문이 qna.txt 문서에 존재하거나 키워드를 참고하여 유사한 항목이 있다면, 해당 A 내용을 우선적으로 정리하여 답변의 맨 처음에 제공합니다.\n"
         "- 이후 PDF 매뉴얼 등 기타 문서를 참고하여 보완 설명을 이어서 작성합니다.\n"
@@ -263,11 +234,16 @@ def get_rag_chain():
         "  2. few-shot 예시(answer_examples) 안의 출처/페이지 표기는 모두 무시하세요. (형식 예시일 뿐 실제 인용 아님)\n"
         "  3. 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.\n"
         "  4. 각 설명이 어떤 문서에서 유래했는지 사용자에게 명확히 전달해야 합니다.\n"
+        "\n"
         "- 사용법 안내 등의 답변 본문에서도 관련 설명 끝에 (출처: 문서명 n페이지) 형식으로 표시해 주세요.\n"
         "- 본문 내용에 참조한 문서가 있을 경우 매뉴얼 참조 항목은 반드시 표시해주세요.\n"
-        "- 출처는 반드시 정확한 문서기반으로 표시하여야 하며 추측하지 마세요.\n\n"
+        "- 출처는 반드시 정확한 문서기반으로 표시하여야 하며 추측하지마세요.\n"
 
-        "출력 형식 규칙(매우 중요):\n"
+        " 출력 형식 규칙(매우 중요):\n"
+        "- 질문과 직접 관련된 정보가 문서에 없는 경우에는 다음 중 한 문구를 자연스럽게 사용하세요.:\n"
+        "* '죄송합니다. 해당 내용은 현재 안내드릴 수 있는 범위를 벗어난 항목입니다.'\n"
+        "* '문의하신 내용은 현재 자료 기준으로는 확인이 어려운 점 양해 부탁드립니다.'\n"
+        "* '현재로서는 정확한 안내가 어려운 내용입니다. 조금 더 구체적으로 문의주시면 확인해보겠습니다.'\n"
         "- 반드시 Markdown을 사용하세요.\n"
         "- 각 섹션 제목(예: '✅ 질문에 대한 정식 답변:') 뒤에는 **빈 줄 1개**를 두세요.\n"
         "- '사용법 안내'는 **번호 목록(1., 2., 3., ...)** 으로, 항목마다 **새 줄**에서 시작하세요.\n"
@@ -281,7 +257,6 @@ def get_rag_chain():
         "  4. [수도 검침]에서 '요금 계산'을 다시 실행합니다.\n"
         "{context}"
     )
-
 
     qa_prompt = ChatPromptTemplate.from_messages(
         [
