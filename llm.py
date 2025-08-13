@@ -13,8 +13,6 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.runnables import RunnableLambda, RunnableBranch, RunnablePassthrough, RunnableMap
-
 
 # ✅ Ollama용 LLM
 from langchain_community.chat_models import ChatOllama
@@ -33,6 +31,7 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_LLM   = os.getenv("MODEL_LLM", "gemma3:latest")  # ollama pull gemma3:latest
 TOP_K       = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
+
 # 세션별 대화 히스토리 저장소
 store = {}
 
@@ -140,7 +139,7 @@ def get_llm():
         base_url=OLLAMA_HOST,
         model=MODEL_LLM,
         # 아래는 선택: 속도/안정성 튜닝 예시
-        temperature=0.0,
+        # temperature=0.2,
         # top_p=0.9,
         # num_predict=256,
         # num_ctx=4096,
@@ -177,7 +176,7 @@ def get_history_retriever():
 def get_rag_chain():
     llm = get_llm()
 
-    # ✅ few-shot 예시 클린업(기존대로)
+    # ✅ 예시를 클린업해서 사용 (예시 출처는 무시되도록)
     cleaned_examples = sanitize_examples(answer_examples)
 
     example_prompt = ChatPromptTemplate.from_messages(
@@ -191,7 +190,7 @@ def get_rag_chain():
         examples=cleaned_examples,
     )
 
-    # ✅ 기존 프롬프트 구조 유지 (거부 규칙은 런타임 가드에서 처리)
+    # ✅ 실제 출처는 context의 metadata(source/page)만 사용하도록 명시
     system_prompt = (
         "당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.\n"
         "사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.\n"
@@ -235,14 +234,22 @@ def get_rag_chain():
         "  2. few-shot 예시(answer_examples) 안의 출처/페이지 표기는 모두 무시하세요. (형식 예시일 뿐 실제 인용 아님)\n"
         "  3. 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.\n"
         "  4. 각 설명이 어떤 문서에서 유래했는지 사용자에게 명확히 전달해야 합니다.\n"
-        "- 사용법 안내 등의 답변 본문에서도 관련 설명 끝에 (출처: 문서명 n페이지) 형식으로 표시해 주세요.\n\n"
-
-        "출력 형식 규칙(매우 중요):\n"
+        "\n"
+        "- 사용법 안내 등의 답변 본문에서도 관련 설명 끝에 (출처: 문서명 n페이지) 형식으로 표시해 주세요.\n"
+        "- 본문 내용에 참조한 문서가 있을 경우 매뉴얼 참조 항목은 반드시 표시해주세요.\n"
+        " 출력 형식 규칙(매우 중요):\n"
         "- 반드시 Markdown을 사용하세요.\n"
-        "- 각 섹션 제목(예: '✅ 질문에 대한 정식 답변:') 뒤에는 빈 줄 1개를 두세요.\n"
-        "- '사용법 안내'는 번호 목록(1., 2., 3., ...)으로, 항목마다 새 줄에서 시작하세요.\n"
-        "- '유의사항', '예상 질문'은 불릿 목록(- )으로, 항목마다 새 줄에서 시작하세요.\n"
-        "- 한 줄에 여러 항목을 이어 쓰지 마세요. 각 항목은 반드시 줄바꿈으로 구분합니다.\n\n"
+        "- 각 섹션 제목(예: '✅ 질문에 대한 정식 답변:') 뒤에는 **빈 줄 1개**를 두세요.\n"
+        "- '사용법 안내'는 **번호 목록(1., 2., 3., ...)** 으로, 항목마다 **새 줄**에서 시작하세요.\n"
+        "- '유의사항', '예상 질문'은 **불릿 목록(- )** 으로, 항목마다 **새 줄**에서 시작하세요.\n"
+        "- **한 줄에 여러 항목을 이어 쓰지 마세요.** 각 항목은 반드시 줄바꿈으로 구분합니다.\n"
+        "- 예시:\n"
+        "  ✅ 사용법 안내:\n"
+        "  1. 메뉴 경로: [단지관리 > 환경설정 > 검침환경등록]\n"
+        "  2. '수도'를 클릭합니다.\n"
+        "  3. '할인요금'을 수정하고 저장합니다.\n"
+        "  4. [수도 검침]에서 '요금 계산'을 다시 실행합니다.\n"
+            "{context}"
         "{context}"
     )
 
@@ -255,37 +262,14 @@ def get_rag_chain():
         ]
     )
 
-    # ✅ 기존 히스토리 인지형 retriever 사용
     history_aware_retriever = get_history_retriever()
     question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
-    # ✅ 런타임 가드 입력 구성: retriever 결과가 context에 들어오게 함
-    guard_input = RunnableMap({
-        "input": lambda x: x["input"],
-        "chat_history": lambda x: x.get("chat_history", []),
-        "context": history_aware_retriever,   # retriever → List[Document]
-    })
-
-    # ✅ 문서가 0개면 바로 거부(LLM 호출 안 함)
-    REFUSAL_MSG = "죄송합니다. 업로드된 문서에서 근거를 찾지 못해 답변할 수 없습니다. 질문을 더 구체화하거나 관련 문서를 업로드해 주세요."
-    refuse = RunnableLambda(lambda _: {"answer": REFUSAL_MSG})
-
-    # ✅ QA 체인의 문자열 출력을 {"answer": "..."} 로 감싸서 타입 일치
-    qa_as_dict = question_answer_chain | RunnableLambda(lambda s: {"answer": s})
-
-    guarded_chain = (
-        guard_input
-        | RunnableBranch(
-            (lambda x: len(x.get("context", [])) == 0, refuse),  # 문서 없음 → 거부
-            qa_as_dict                                           # 문서 있음 → 정상 QA
-        )
-    )
-
-    # ✅ 세션별 히스토리 연결 + answer 키만 스트리밍
     conversational_rag_chain = RunnableWithMessageHistory(
-        guarded_chain,
+        rag_chain,
         get_session_history,
-        input_messages_key="input",
+        input_messages_key="input",       # ✅ 'input' 키 사용
         history_messages_key="chat_history",
         output_messages_key="answer",
     ).pick('answer')
