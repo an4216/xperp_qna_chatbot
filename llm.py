@@ -201,7 +201,7 @@ def get_ai_response(user_message):
     tax_chain = rag_chain
 
     stream = tax_chain.stream(
-        {"question": user_message},
+        {"input": user_message},
         config={"configurable": {"session_id": "abc123"}},
     )
 
