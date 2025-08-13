@@ -21,6 +21,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.runnables import RunnableLambda
 
 # ===== 환경/상수 =====
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -250,17 +251,21 @@ def _route_and_answer(question: str, chat_history, qna_ret, man_ret):
     return "문의하신 내용은 현재 자료 기준으로는 확인이 어렵습니다."
 
 
+# get_rag_chain() 전체 교체
 def get_rag_chain():
     qna_ret, man_ret = get_retrievers()
 
-    # RunnableWithMessageHistory에 맞춘 호출자
+    # RunnableWithMessageHistory가 요구하는 형태(dict)에 맞춰 반환
     def _invoke(inputs, config):
         question = inputs["input"]
         chat_history = inputs.get("chat_history", [])
-        return _route_and_answer(question, chat_history, qna_ret, man_ret)
+        text = _route_and_answer(question, chat_history, qna_ret, man_ret)
+        return {"answer": text}
+
+    runnable = RunnableLambda(_invoke)
 
     conversational = RunnableWithMessageHistory(
-        _invoke,
+        runnable,
         get_session_history,
         input_messages_key="input",
         history_messages_key="chat_history",
@@ -268,6 +273,7 @@ def get_rag_chain():
     ).pick("answer")
 
     return conversational
+
 
 
 # =========================
