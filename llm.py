@@ -80,59 +80,55 @@ def get_embeddings():
         encode_kwargs={"normalize_embeddings": True}  # 코사인 유사도 안정화
     )
 
-# 2. 문서 로드 + 벡터스토어 생성 + retriever 반환
 def get_retriever():
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
-    # 저장된 벡터스토어 로드
+    # 1) 벡터스토어 로드 또는 생성
     if os.path.exists(os.path.join(VECTOR_DIR, "index.faiss")):
         vectorstore = FAISS.load_local(
             VECTOR_DIR,
             get_embeddings(),
             allow_dangerous_deserialization=True
         )
-        return vectorstore.as_retriever(search_kwargs={'k': TOP_K, "score_threshold": 0.3})
+    else:
+        embedding = get_embeddings()
+        documents = []
+        docs_dirs = ["docs/manual", "docs/qna"]
 
-    # 없으면 새로 생성
-    embedding = get_embeddings()
-    documents = []
-    docs_dirs = ["docs/manual", "docs/qna"]
+        for docs_dir in docs_dirs:
+            if not os.path.isdir(docs_dir):
+                continue
+            for filename in os.listdir(docs_dir):
+                file_path = os.path.join(docs_dir, filename)
+                manual_name = os.path.splitext(filename)[0]
 
-    for docs_dir in docs_dirs:
-        if not os.path.isdir(docs_dir):
-            continue
-        for filename in os.listdir(docs_dir):
-            file_path = os.path.join(docs_dir, filename)
-            manual_name = os.path.splitext(filename)[0]
+                if filename.endswith(".txt"):
+                    loader = TextLoader(file_path, encoding='utf-8')
+                    docs = loader.load()
+                    for doc in docs:
+                        doc.metadata["source"] = manual_name
+                    documents.extend(docs)
 
-            if filename.endswith(".txt"):
-                loader = TextLoader(file_path, encoding='utf-8')
-                docs = loader.load()
-                for doc in docs:
-                    doc.metadata["source"] = manual_name
-                documents.extend(docs)
+                elif filename.endswith(".pdf"):
+                    loader = PyPDFLoader(file_path)
+                    pages = loader.load()
+                    for i, page in enumerate(pages):
+                        page.metadata["source"] = manual_name
+                        page.metadata["page"] = i + 1
+                        # ✅ 정확한 출처를 본문에 주입
+                        page.page_content += f"\n\n(출처: {manual_name} {i + 1}페이지)"
+                        documents.append(page)
 
-            elif filename.endswith(".pdf"):
-                loader = PyPDFLoader(file_path)
-                pages = loader.load()
-                for i, page in enumerate(pages):
-                    page.metadata["source"] = manual_name
-                    page.metadata["page"] = i + 1
-                    # ✅ 출처 정보 삽입 (실제 인용은 여기서만)
-                    citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
-                    page.page_content += citation
-                    documents.append(page)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        split_docs = splitter.split_documents(documents)
+        split_docs = [d for d in split_docs if len(d.page_content.strip()) > 10]
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    split_docs = splitter.split_documents(documents)
-    split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
+        MAX_CHUNKS = 500
+        if len(split_docs) > MAX_CHUNKS:
+            split_docs = split_docs[:MAX_CHUNKS]
 
-    MAX_CHUNKS = 500
-    if len(split_docs) > MAX_CHUNKS:
-        split_docs = split_docs[:MAX_CHUNKS]
-
-    vectorstore = FAISS.from_documents(split_docs, embedding)
-    vectorstore.save_local(VECTOR_DIR)
+        vectorstore = FAISS.from_documents(split_docs, embedding)
+        vectorstore.save_local(VECTOR_DIR)
 
     # 2) 검색 전략 선택 (토글)
     if USE_SCORE_THRESHOLD:
@@ -154,6 +150,7 @@ def get_retriever():
                 "lambda_mult": 0.5,
             },
         )
+
 
 # 4. LLM(챗봇) 인스턴스 생성 → Ollama
 def get_llm():
