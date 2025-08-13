@@ -96,7 +96,7 @@ def get_retriever():
                         page.page_content += citation
                         documents.append(page)
 
-        splitter = RecursiveCharacterTextSplitter(chunk_size=256, chunk_overlap=48)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
         split_docs = [
             d for d in splitter.split_documents(documents)
             if len(d.page_content.strip()) > 10
