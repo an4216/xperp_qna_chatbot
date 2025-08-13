@@ -66,7 +66,7 @@ def get_retriever():
             embedding,
             allow_dangerous_deserialization=True
         )
-       return vectorstore.as_retriever(search_kwargs={"k": TOP_K})
+    return vectorstore.as_retriever(search_kwargs={"k": TOP_K})
 
 
     # 없으면 새로 생성
