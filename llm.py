@@ -6,7 +6,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 
 # ★ OpenAI → Ollama
 from langchain_ollama import ChatOllama
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
