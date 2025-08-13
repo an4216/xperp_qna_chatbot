@@ -332,10 +332,10 @@ def get_rag_chain():
 
 # 7. 최종 답변 생성 함수 (질문 → 답변) + 소요시간 표시
 def get_ai_response(user_message):
-    dictionary_chain = get_dictionary_chain()
+    #dictionary_chain = get_dictionary_chain()
     rag_chain = get_rag_chain()
-    tax_chain = {"input": dictionary_chain} | rag_chain
-
+    #tax_chain = {"input": dictionary_chain} | rag_chain
+    tax_chain = rag_chain
     # 내부 스트림 생성
     inner_stream = tax_chain.stream(
         {"question": user_message},
