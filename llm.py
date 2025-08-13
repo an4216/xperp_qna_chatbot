@@ -129,10 +129,12 @@ def get_history_retriever():
     retriever = get_retriever()
 
     contextualize_q_system_prompt = (
-        "대화 이력과 최신 사용자 질문이 주어졌을 때, "
-        "대화 이력 없이도 이해 가능한 독립 질문으로 재작성하세요. "
-        "답변하지 말고 질문만 반환하세요."
-    )
+       "Given a chat history and the latest user question "
+       "which might reference context in the chat history, "
+       "formulate a standalone question which can be understood "
+       "without the chat history. Do NOT answer the question, "
+       "just reformulate it if needed and otherwise return it as is."
+   )
 
     contextualize_q_prompt = ChatPromptTemplate.from_messages(
         [
