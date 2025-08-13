@@ -87,7 +87,7 @@ def get_retriever():
             get_embeddings(),
             allow_dangerous_deserialization=True
         )
-        return vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+        return vectorstore.as_retriever(search_kwargs={'k': TOP_K, "score_threshold": 0.3})
 
     # 없으면 새로 생성
     embedding = get_embeddings()
