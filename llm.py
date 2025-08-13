@@ -195,9 +195,10 @@ def get_rag_chain():
 
 # 7. 최종 답변 생성 함수
 def get_ai_response(user_message):
-    dictionary_chain = get_dictionary_chain()
+    #dictionary_chain = get_dictionary_chain()
     rag_chain = get_rag_chain()
-    tax_chain = {"input": dictionary_chain} | rag_chain
+    #tax_chain = {"input": dictionary_chain} | rag_chain
+    tax_chain = rag_chain
 
     stream = tax_chain.stream(
         {"question": user_message},
