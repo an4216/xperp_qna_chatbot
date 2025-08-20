@@ -27,7 +27,7 @@ import re
 # =========================================
 # 환경설정
 # =========================================
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "https://ahczmll6ur6fkm-11434.proxy.runpod.net")
 MODEL_LLM   = os.getenv("MODEL_LLM", "gemma3:latest")  # ollama pull gemma3:latest
 TOP_K       = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
