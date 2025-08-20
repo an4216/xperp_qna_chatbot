@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chatbot</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f8f9fa;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 30px;
+            background-color: #6f42c1;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .header .logo {
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .header .homepage-link a {
+            color: white;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+        
+        .header .homepage-link svg {
+            vertical-align: middle;
+            margin-left: 5px;
+        }
+
+        .main-content {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 280px;
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-right: 1px solid #e9ecef;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .search-box {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 40px 12px 20px;
+            border-radius: 25px;
+            border: 1px solid #dee2e6;
+            font-size: 1em;
+            box-sizing: border-box;
+        }
+
+        .search-box svg {
+            position: absolute;
+            top: 50%;
+            left: 15px;
+            transform: translateY(-50%);
+            fill: #6c757d;
+        }
+
+        .sidebar-menu .menu-header {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin: 20px 0 10px;
+        }
+
+        .sidebar-menu ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .sidebar-menu li {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 500;
+        }
+
+        .sidebar-menu li:hover {
+            background-color: #e9ecef;
+        }
+
+        .sidebar-menu li.active {
+            background-color: #e6dff6;
+            color: #6f42c1;
+            font-weight: 700;
+        }
+        
+        .sidebar-menu li .menu-icon {
+            fill: #6c757d;
+        }
+
+        .chat-area {
+            flex-grow: 1;
+            padding: 30px 0;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .chat-container {
+            max-width: 1080px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 30px;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .chat-content {
+            flex-grow: 1;
+        }
+        
+        .user-message-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 20px;
+        }
+
+        .user-message {
+            background-color: #f1f3f5;
+            padding: 12px 20px;
+            border-radius: 20px;
+            max-width: 60%;
+        }
+
+        .bot-message-container {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .bot-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #6f42c1;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            flex-shrink: 0;
+            font-weight: bold;
+        }
+
+        .bot-message {
+            background-color: white;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #e9ecef;
+            max-width: calc(100% - 55px);
+        }
+        
+        .bot-message p {
+            margin-top: 0;
+        }
+        
+        .bot-message .summary, .bot-message .guide, .bot-message .notice, .bot-message .manual {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .bot-message .icon {
+            margin-right: 10px;
+            fill: #28a745;
+        }
+        
+        .bot-message ul {
+            padding-left: 20px;
+            margin: 0;
+        }
+        
+        .bot-message li {
+            margin-bottom: 5px;
+        }
+
+        .chat-input-area {
+            padding-top: 20px;
+        }
+
+        .chat-input-wrapper {
+            position: relative;
+        }
+
+        .chat-input {
+            width: 100%;
+            padding: 15px 50px 15px 20px;
+            border-radius: 25px;
+            border: 1px solid #dee2e6;
+            font-size: 1em;
+            box-sizing: border-box;
+            background-color: white;
+        }
+
+        .send-button {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            background-color: #6f42c1;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .send-button svg {
+            fill: white;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header class="header">
+            <div class="logo">AEGIS ENTERPRISE</div>
+            <div class="homepage-link">
+                <a href="#">공식 홈페이지 
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l9.2-9.2M17 17V7H7"/></svg>
+                </a>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- <aside class="sidebar">
+                <div class="search-box">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                    <input type="text" placeholder="">
+                </div>
+                <nav class="sidebar-menu">
+                    <div class="menu-header">어제</div>
+                    <ul>
+                        <li class="active">
+                            전기 검침
+                            <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                        </li>
+                        <li>민원처리 방법</li>
+                        <li>부과 내역서 처리</li>
+                        <li>부과 내역서 올리기</li>
+                        <li>동호 생성</li>
+                    </ul>
+                </nav>
+            </aside> -->
+
+            <main class="chat-area">
+                <div class="chat-container">
+                    <div class="chat-content">
+                        <div class="user-message-container">
+                            <div class="user-message">
+                                입주민 전출처리 방법 알려줘
+                            </div>
+                        </div>
+
+                        <div class="bot-message-container">
+                            <div class="bot-avatar">Xp</div>
+                            <div class="bot-message">
+                                <p>네, 입주민 전출처리 방법을 알려드리겠습니다.</p>
+                                <p>입주민 전출 처리는 해당 세대의 전출 정보를 입력하고 미납 및 차량정보를 확인한 후 저장하는 과정입니다. 이를 통해 입주자 관리 데이터베이스에서 전출된 세대로 처리됩니다.</p>
+                                
+                                <div class="summary">
+                                    <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                    <div><strong>간단 요약:</strong> 전출세대의 동/호수와 전출일자를 입력 후 조회하여 전출 처리를 완료합니다.</div>
+                                </div>
+
+                                <div class="guide">
+                                    <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                    <div><strong>사용법 안내:</strong>
+                                        <ul>
+                                            <li>메뉴 경로: [입주자 > 전출처리 > 전출처리]</li>
+                                            <li>전출세대의 동/호수와 전출일자를 입력합니다.</li>
+                                            <li>'조회' 버튼을 눌러 해당 세대의 미납 및 차량정보를 확인합니다.</li>
+                                            <li>필요 시 '해지차량 포함'을 선택하여 해지 차량 정보도 조회합니다.</li>
+                                            <li>'저장' 버튼을 눌러 전출 처리 완료 (출처: 입주자 매뉴얼 15페이지)</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div class="notice">
+                                    <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                    <div><strong>유의사항:</strong>
+                                        <ul>
+                                            <li>전출처리와 중간정산은 별개의 과정입니다.</li>
+                                            <li>전출처리 후에는 전출취소가 가능하지만, 해당 호실이 미입주 상태여야 합니다.</li>
+                                            <li>다른 입주자가 등록된 상태에서는 전출취소가 불가합니다.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                
+                                <div class="manual">
+                                    <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                    <div><strong>매뉴얼 참조:</strong> (출처: 입주자 매뉴얼 15페이지)</div>
+                                </div>
+
+                                <p>필요하다면 예상 질문으로 추가 답변을 드릴 수 있어요.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-input-area">
+                        <div class="chat-input-wrapper">
+                            <input type="text" class="chat-input" placeholder="XpERP 사용법이나 오류에 대해 물어보세요.">
+                            <button class="send-button">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const chatContent = document.querySelector('.chat-content');
+            const chatInput = document.querySelector('.chat-input');
+            const sendButton = document.querySelector('.send-button');
+
+            const addMessage = (sender, message) => {
+                let messageHtml = '';
+                if (sender === 'user') {
+                    messageHtml = `
+                        <div class="user-message-container">
+                            <div class="user-message">${message}</div>
+                        </div>
+                    `;
+                } else {
+                    // AI 응답의 경우, 마크다운 형식의 리스트 등을 HTML로 변환
+                    const formattedMessage = message.replace(/\n/g, '<br>');
+                    messageHtml = `
+                        <div class="bot-message-container">
+                            <div class="bot-avatar">Xp</div>
+                            <div class="bot-message">${formattedMessage}</div>
+                        </div>
+                    `;
+                }
+                chatContent.innerHTML += messageHtml;
+                chatContent.scrollTop = chatContent.scrollHeight;
+            };
+
+            const handleSendMessage = async () => {
+                const message = chatInput.value.trim();
+                if (!message) return;
+
+                addMessage('user', message);
+                chatInput.value = '';
+                
+                // 로딩 중임을 나타내는 메시지 (선택 사항)
+                addMessage('bot', '답변을 생성하는 중입니다...');
+
+                try {
+                    const formData = new FormData();
+                    formData.append('message', message);
+
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const botResponse = await response.text();
+
+                    // '생성 중' 메시지 제거
+                    const botMessages = chatContent.querySelectorAll('.bot-message-container');
+                    botMessages[botMessages.length - 1].remove();
+                    
+                    addMessage('bot', botResponse);
+
+                } catch (error) {
+                    console.error('Error fetching chat response:', error);
+                    const botMessages = chatContent.querySelectorAll('.bot-message-container');
+                    botMessages[botMessages.length - 1].querySelector('.bot-message').innerHTML = '오류가 발생했습니다. 다시 시도해주세요.';
+                }
+            };
+
+            sendButton.addEventListener('click', handleSendMessage);
+            chatInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    handleSendMessage();
+                }
+            });
+
+            // 초기 메시지 제거 (이제 동적으로 생성되므로)
+            const initialUserMessage = document.querySelector('.user-message-container');
+            const initialBotMessage = document.querySelector('.bot-message-container');
+            if(initialUserMessage) initialUserMessage.remove();
+            if(initialBotMessage) initialBotMessage.remove();
+        });
+    </script>
+</html>

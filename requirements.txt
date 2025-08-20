@@ -79,3 +79,6 @@ urllib3==2.2.1
 yarl==1.9.4
 faiss-cpu==1.7.4
 pypdf==5.8.0
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
