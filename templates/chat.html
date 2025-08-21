@@ -15,10 +15,10 @@
             <nav>
                 <div class="logo">
                     <a href="#" class="chat-home">
-                        <img src="/static/images/aegis-logo.svg">
+                        <img data-logo="aegisep" src="/static/images/aegis-logo.svg">
                     </a>
                     <span class="v_line"></span>
-                    <img src="/static/images/xperp-logo.svg">
+                    <img data-logo="xperp" src="/static/images/xperp-logo.svg">
                 </div>
                 <div class="homepage-link">
                     <a href="https://www.aegisep.com" target="_blank">공식 홈페이지 바로가기</a>
@@ -49,138 +49,140 @@
 
             <main class="chat-area">
                 <div class="chat-container">
-                    
+
                     <div class="chat-content">
                         <div class="cover-content">
-                            <h1> XpERP 상담 챗봇에 오신 것을 환영합니다</h1>
+                            <h1> XpERP 상담 챗봇에 오신 것을 환영합니다.</h1>
                             <p>공동주택 관리 프로그램 XpERP의 사용법, 오류에 대해 궁금한 점이 있다면 언제든 문의해 주세요!</p>
                             <div class="cover-quesion-preview" aria-live="polite">
                                 <div class="line">Q. 전출처리는 어떻게 하나요?</div>
                                 <div class="line">Q. 입주민 차량 등록 방법이 궁금해요</div>
                                 <div class="line">Q. 관리비 조회 방법을 알려주세요</div>
                             </div>
-                            
-                            <!-- CSS -->
-                            <style>
-                                
-                            </style>
                         </div>
                     </div>
 
-                    <div class="chat-input-area">
-                        <div class="chat-input-wrapper">
-                            <input type="text" class="chat-input" placeholder="XpERP 사용법이나 오류에 대해 물어보세요.">
-                            <button class="send-button">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round" class="lucide lucide-arrow-up w-5 h-5" aria-hidden="true"
-                                    style="color: rgb(255, 255, 255);">
-                                    <path d="m5 12 7-7 7 7"></path>
-                                    <path d="M12 19V5"></path>
-                                </svg>
-                            </button>
-                        </div>
+                </div>
+                <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <!-- ✅ input → textarea 로 변경, 클래스/구조 유지 -->
+                        <textarea class="chat-input" rows="1" placeholder="XpERP 사용법이나 오류에 대해 물어보세요." aria-label="챗봇 메시지 입력"></textarea>
+                        <button class="send-button" aria-label="메시지 보내기">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                class="lucide lucide-arrow-up w-5 h-5" aria-hidden="true" style="color: rgb(255, 255, 255);">
+                                <path d="m5 12 7-7 7 7"></path>
+                                <path d="M12 19V5"></path>
+                            </svg>
+                        </button>
                     </div>
                 </div>
             </main>
         </div>
     </div>
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const chatContent = document.querySelector('.chat-content');
-        const chatInput = document.querySelector('.chat-input');
-        const sendButton = document.querySelector('.send-button');
-        const coverContent = document.querySelector('.cover-content');
-        const resetButton = document.querySelector('.chat-home');
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const chatContent = document.querySelector('.chat-content');
+            const chatInput = document.querySelector('.chat-input'); // textarea
+            const sendButton = document.querySelector('.send-button');
+            const coverContent = document.querySelector('.cover-content');
+            const resetButton = document.querySelector('.chat-home');
 
-        let hasSentFirstMessage = false;
+            let hasSentFirstMessage = false;
 
-        const addMessage = (sender, message) => {
-            let messageHtml = '';
-            if (sender === 'user') {
-                messageHtml = `<div class="user-message-container"><div class="user-message">${message}</div></div>`;
-            } else {
-                const formatted = message.replace(/\n/g, '<br>');
-                messageHtml = `<div class="bot-message-container"><div class="bot-message">${formatted}</div></div>`;
-            }
-            chatContent.innerHTML += messageHtml;
-            chatContent.scrollTop = chatContent.scrollHeight;
-        };
+            const addMessage = (sender, message) => {
+                let messageHtml = '';
+                if (sender === 'user') {
+                    messageHtml = `<div class="user-message-container"><div class="user-message">${message}</div></div>`;
+                } else {
+                    const formatted = message.replace(/\n/g, '<br>');
+                    messageHtml = `<div class="bot-message-container"><div class="bot-message">${formatted}</div></div>`;
+                }
+                chatContent.innerHTML += messageHtml;
+                chatContent.scrollTop = chatContent.scrollHeight;
+            };
 
-        const handleSendMessage = async () => {
-            const message = chatInput.value.trim();
-            if (!message) return;
+            // ✅ textarea 자동 높이 조절
+            const autoResize = () => {
+                chatInput.style.height = 'auto';
+                chatInput.style.height = chatInput.scrollHeight + 'px';
+            };
 
-            // ✅ 처음 메시지 입력 시 cover-content 숨김
-            if (!hasSentFirstMessage && coverContent) {
-                // coverContent.classList.add('hidden');
-                coverContent.style.display = 'none'; // display 속성도 제거
-                hasSentFirstMessage = true;
-            }
+            const handleSendMessage = async () => {
+                const message = chatInput.value.trim();
+                if (!message) return;
 
-            // 사용자 메시지 추가 & 입력창 비우기
-            addMessage('user', message);
-            chatInput.value = '';
+                // 처음 메시지 입력 시 cover-content 숨김
+                if (!hasSentFirstMessage && coverContent) {
+                    coverContent.style.display = 'none';
+                    hasSentFirstMessage = true;
+                }
 
-            // 로딩 메시지 추가
-            addMessage('bot', '답변을 생성하는 중입니다...');
+                // 사용자 메시지 추가 & 입력창 비우기
+                addMessage('user', message);
+                chatInput.value = '';
+                autoResize(); // 비운 후 높이 재계산
 
-            // 마지막 봇 메시지(로딩 메시지) 안전 제거 함수
-            const removeLastBotMessage = () => {
-                const botMessages = document.querySelectorAll('.bot-message-container');
-                const count = botMessages.length;
-                if (count > 0) {
-                    const last = botMessages[count - 1];
-                    if (last && typeof last.remove === 'function') {
-                        last.remove();
-                    } else if (last && last.parentNode) {
-                        last.parentNode.removeChild(last);
+                // 로딩 메시지 추가
+                addMessage('bot', '답변을 생성하는 중입니다...');
+
+                // 마지막 봇 메시지(로딩 메시지) 안전 제거 함수
+                const removeLastBotMessage = () => {
+                    const botMessages = document.querySelectorAll('.bot-message-container');
+                    const count = botMessages.length;
+                    if (count > 0) {
+                        const last = botMessages[count - 1];
+                        if (last && typeof last.remove === 'function') {
+                            last.remove();
+                        } else if (last && last.parentNode) {
+                            last.parentNode.removeChild(last);
+                        }
                     }
+                };
+
+                try {
+                    const formData = new FormData();
+                    formData.append('message', message);
+
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const botResponse = await response.text();
+
+                    // 로딩 메시지 제거
+                    removeLastBotMessage();
+
+                    if (!response.ok) {
+                        addMessage('bot', `오류가 발생했어요 (${response.status}). 잠시 후 다시 시도해 주세요.`);
+                        return;
+                    }
+
+                    addMessage('bot', botResponse);
+                } catch (err) {
+                    console.error(err);
+                    removeLastBotMessage();
+                    addMessage('bot', '오류가 발생했어요. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.');
                 }
             };
 
-            try {
-                const formData = new FormData();
-                formData.append('message', message);
+            sendButton.addEventListener('click', handleSendMessage);
 
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const botResponse = await response.text();
-
-                // 로딩 메시지 제거
-                removeLastBotMessage();
-
-                // HTTP 오류 처리(텍스트는 이미 받아왔으니 우선 ok 여부로 fallback)
-                if (!response.ok) {
-                    addMessage('bot', `오류가 발생했어요 (${response.status}). 잠시 후 다시 시도해 주세요.`);
-                    return;
+            // ✅ Enter=전송, Shift+Enter=줄바꿈
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
                 }
+            });
 
-                // 실제 봇 응답 추가
-                addMessage('bot', botResponse);
-            } catch (err) {
-                console.error(err);
-                // 로딩 메시지 제거 후 에러 메시지 출력
-                removeLastBotMessage();
-                addMessage('bot', '오류가 발생했어요. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.');
-            }
-        };
+            // ✅ 입력 시 자동 리사이즈
+            chatInput.addEventListener('input', autoResize);
 
-
-        sendButton.addEventListener('click', handleSendMessage);
-        chatInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') handleSendMessage();
+            // 초기 1회 높이 계산
+            autoResize();
         });
-
-
-    });
-</script>
-
-
-
-
+    </script>
 
 </html>

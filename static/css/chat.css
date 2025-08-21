@@ -1,8 +1,9 @@
-@import url("https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css"); body, html {
+@import url("https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css"); 
+body, html {
     margin: 0;
     padding: 0;
     height: 100%;
-    font-family: 'Noto Sans KR', sans-serif;
+    font-family: 'Pretendard', sans-serif;
     background-color: #fff;
 }
 
@@ -53,6 +54,9 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
     display: flex;
     align-items: center;
     gap: 14px;
+}
+.header .logo img[data-logo="xperp"] {
+    height: 22px;
 }
 
 .header .homepage-link a {
@@ -152,17 +156,16 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 
 .chat-area {
     flex-grow: 1;
-    padding: 30px 0 60px;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
 }
 
 .chat-container {
-    max-width: 1440px;
     width: 100%;
     margin: 0 auto;
-    padding: 0 30px;
+    padding: 32px 0 20px;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     flex-grow: 1;
@@ -170,6 +173,9 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 
 .chat-content {
     flex-grow: 1;
+    max-width: 768px;
+    width: 100%;
+    margin: 0 auto;
 }
 
 .user-message-container {
@@ -182,8 +188,9 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
     background-color: #31333f;
     padding: 10px 17px;
     color: #fff;
-    border-radius: 14px;
+    border-radius: 12px;
     margin-right: 21px;
+    white-space: break-spaces;
 }
 
 .bot-message-container {
@@ -195,7 +202,7 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 
 .bot-message {
     background-color: #F5F6F8;
-    padding: 20px;
+    padding: 10px 17px;
     border-radius: 12px;
     max-width: calc(100% - 55px);
     line-height: 1.6;
@@ -232,21 +239,32 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 
 .chat-input-wrapper {
     position: relative;
+    max-width: 768px;
+    margin: 0 auto;
 }
 
 .chat-input {
     width: 100%;
-    padding: 17px 70px 18px 28px;
+    padding: 16px 70px 20px 28px;
     border-radius: 30px;
     border: 1px solid #dee2e6;
     font-size: 1em;
     box-sizing: border-box;
     background-color: white;
+    font-family: pretandard;
+    resize: none;
+    overflow: hidden;
+    line-height: 1.5;
+    min-height: 60px;
+    max-height: 120px;
     box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.1) 0px 2px 4px -2px;
 }
+.chat-input::placeholder {color: #6c757d;
+        font-family: pretandard;
+        font-weight: 400;}
 
 .chat-input:focus-visible {
-    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 0 0 6px rgba(24, 134, 197, 0.1);
     outline: none;
     border-color: oklab(0.708 0 0 / 0.5);
 }
@@ -257,14 +275,14 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 
 .send-button {
     position: absolute;
-    top: 50%;
+    top: calc(50% - 1px);
     right: 16px;
     transform: translateY(-50%);
     background-color: rgb(209, 213, 219);
     border: none;
     border-radius: 50%;
-    width: 35px;
-    height: 35px;
+    width: 34px;
+    height: 34px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -336,6 +354,6 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
   0%   { opacity: 0; transform: translateY(10px); }
   10%  { opacity: 1; transform: translateY(0); }
   30%  { opacity: 1; transform: translateY(0); }
-  40%  { opacity: 0; transform: translateY(-10px); }
+  35%  { opacity: 0; transform: translateY(-10px); }
   100% { opacity: 0; transform: translateY(-10px); }
 }
