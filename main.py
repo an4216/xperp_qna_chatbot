@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -23,22 +23,29 @@ async def read_root(request: Request):
     # templates/chat.html 렌더링
     return templates.TemplateResponse("chat.html", {"request": request})
 
-# 채팅 API 엔드포인트 ("/chat")
+# 채팅 API 엔드포인트 (SSE)
 @app.post("/chat")
-async def chat(request: Request, message: str = Form(...) ):
-    # llm.py의 get_ai_response 함수 호출
+async def chat(request: Request, message: str = Form(...)):
     ai_response_generator = get_ai_response(message)
 
-    # 스트리밍 응답 생성
     async def stream_generator():
         response_content = ""
         for chunk in ai_response_generator:
             response_content += chunk
-            # 스트리밍 효과를 위해 작은 지연 추가 (실제로는 필요 없을 수 있음)
             await asyncio.sleep(0.01)
         yield response_content
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+# 🔎 호출 테스트용 API (SSE 없이 즉시 텍스트 반환)
+# - Postman에서 본문이 바로 보이도록 PlainText로 응답
+@app.post("/chat-test")
+async def chat_test(message: str = Form(...)):
+    ai_response_generator = get_ai_response(message)
+    chunks = []
+    for chunk in ai_response_generator:
+        chunks.append(chunk)
+    return PlainTextResponse("".join(chunks))
 
 # 서버 실행 (개발용)
 if __name__ == "__main__":
