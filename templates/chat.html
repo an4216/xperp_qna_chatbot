@@ -182,7 +182,12 @@
 
             // 초기 1회 높이 계산
             autoResize();
+
+            document.querySelector('.chat-home')?.addEventListener('click', (e) => {
+                e.preventDefault();            // # 링크 기본동작 막기
+                window.location.reload();      // 단순 새로고침
+            });
         });
     </script>
-
+</body>
 </html>
