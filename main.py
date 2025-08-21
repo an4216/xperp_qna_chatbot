@@ -15,7 +15,7 @@ templates = Jinja2Templates(directory="templates")
 # 👉 환경 변수 로드 (.env 사용 시)
 load_dotenv()
 # 정적 파일(CSS, JS) 설정 (필요시)
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 루트 경로 ("/")
 @app.get("/", response_class=HTMLResponse)
