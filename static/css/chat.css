@@ -5,6 +5,7 @@ body, html {
     height: 100%;
     font-family: 'Pretendard', sans-serif;
     background-color: #fff;
+    overflow: hidden;
 }
 
 html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
@@ -20,7 +21,7 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 .container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100%;
 }
 
 .header {
@@ -45,7 +46,7 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 }
 
 .header nav .v_line {
-    height: 21px;
+    height: 20px;
     width: 1px;
     background: oklab(0.999994 0.0000455678 0.0000200868 / 0.3);
 }
@@ -158,7 +159,6 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
 }
 
 .chat-container {
@@ -189,14 +189,14 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
     padding: 10px 17px;
     color: #fff;
     border-radius: 12px;
-    margin-right: 21px;
+    margin: 0 20px;
     white-space: break-spaces;
+    max-width: calc(100% - 55px);
 }
-
 .bot-message-container {
     display: flex;
     align-items: flex-start;
-    padding: 0 21px;
+    padding: 0 20px;
     margin-bottom: 40px;
 }
 
@@ -234,7 +234,7 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 }
 
 .chat-input-area {
-    padding: 21px;
+    padding: 20px 20px 60px;
     border-top: 1px solid oklch(0.967 0.003 264.542);
 }
 
@@ -246,7 +246,7 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 
 .chat-input {
     width: 100%;
-    padding: 16px 70px 20px 28px;
+    padding: 17px 70px 19px 28px;
     border-radius: 30px;
     border: 1px solid #dee2e6;
     font-size: 1em;
@@ -364,6 +364,7 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 }
 .send-button.status-busy {
   pointer-events: none;
+  background-color: rgb(209, 213, 219) !important;
 }
 
 /* 로딩 메시지 스타일 */

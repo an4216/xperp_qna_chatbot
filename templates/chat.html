@@ -69,13 +69,50 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const chatContent = document.querySelector('.chat-content');
-            const chatInput = document.querySelector('.chat-input');   // textarea
+            const chatContainer = document.querySelector('.chat-container');  // ✅ 스크롤 기준
+            const chatContent = document.querySelector('.chat-content');      // ✅ 메시지 렌더링
+            const chatInput = document.querySelector('.chat-input');
             const sendButton = document.querySelector('.send-button');
             const coverContent = document.querySelector('.cover-content');
 
             let hasSentFirstMessage = false;
-            let isBusy = false; // ✅ 응답 대기중 플래그
+            let isBusy = false;
+
+            const escapeHtml = (s) =>
+                s.replace(/[&<>"']/g, (c) => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                }[c]));
+
+            const autoResize = () => {
+                chatInput.style.height = 'auto';
+                chatInput.style.height = chatInput.scrollHeight + 'px';
+            };
+
+            const lockInput = () => {
+                isBusy = true;
+                sendButton.disabled = true;
+                sendButton.classList.add('status-busy');
+                chatInput.setAttribute('aria-busy', 'true');
+            };
+
+            const unlockInput = () => {
+                isBusy = false;
+                sendButton.disabled = false;
+                sendButton.classList.remove('status-busy');
+                chatInput.removeAttribute('aria-busy');
+                chatInput.focus();
+            };
+
+            const scrollToBottom = () => {
+                chatContainer.scrollTo({
+                    top: chatContainer.scrollHeight,
+                    behavior: 'smooth'
+                });
+            };
 
             const addMessage = (sender, message) => {
                 let html = '';
@@ -85,70 +122,38 @@
                     html = `<div class="bot-message-container"><div class="bot-message">${message.replace(/\n/g, '<br>')}</div></div>`;
                 }
                 chatContent.insertAdjacentHTML('beforeend', html);
-
-                // 질문일 때만 질문으로 스크롤
-                if (sender === 'user') {
-                    const lastUser = chatContent.querySelector('.user-message-container:last-of-type');
-                    if (lastUser) {
-                        const targetTop = lastUser.offsetTop - (chatContent.clientHeight / 2) + (lastUser.clientHeight / 2);
-                        chatContent.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
-                    }
-                }
-            };
-
-            const escapeHtml = (s) =>
-                s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-            const autoResize = () => {
-                chatInput.style.height = 'auto';
-                chatInput.style.height = chatInput.scrollHeight + 'px';
+                scrollToBottom();
             };
 
             const showLoading = () => {
                 const wrapper = document.createElement('div');
                 wrapper.className = 'bot-message-container';
                 wrapper.innerHTML = `
-          <div class="bot-message status-loading" role="status" aria-live="polite">
-            <span class="sr-only">답변을 생성하는 중입니다...</span>
-            <span class="loading-dots" aria-hidden="true">
-              <span class="loading-dot"></span>
-              <span class="loading-dot"></span>
-              <span class="loading-dot"></span>
-            </span>
-          </div>
-        `;
+                <div class="bot-message status-loading" role="status" aria-live="polite">
+                    <span class="sr-only">답변을 생성하는 중입니다...</span>
+                    <span class="loading-dots" aria-hidden="true">
+                        <span class="loading-dot"></span>
+                        <span class="loading-dot"></span>
+                        <span class="loading-dot"></span>
+                    </span>
+                </div>
+            `;
                 chatContent.appendChild(wrapper);
-                chatContent.scrollTo({ top: chatContent.scrollHeight, behavior: 'smooth' });
+                scrollToBottom();
                 return wrapper;
             };
 
-            const removeLoading = (loadingEl) => {
-                if (!loadingEl) return;
-                if (typeof loadingEl.remove === 'function') loadingEl.remove();
-                else if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
-            };
-
-            // ✅ 입력/버튼 잠금/해제
-            const lockInput = () => {
-                isBusy = true;
-                chatInput.disabled = true;
-                sendButton.disabled = true;
-                chatInput.classList.add('status-busy');
-                sendButton.classList.add('status-busy');
-                chatInput.setAttribute('aria-busy', 'true');
-            };
-            const unlockInput = () => {
-                isBusy = false;
-                chatInput.disabled = false;
-                sendButton.disabled = false;
-                chatInput.classList.remove('status-busy');
-                sendButton.classList.remove('status-busy');
-                chatInput.removeAttribute('aria-busy');
-                chatInput.focus();
+            const removeLoading = (el) => {
+                if (el && typeof el.remove === 'function') {
+                    el.remove();
+                } else if (el?.parentNode) {
+                    el.parentNode.removeChild(el);
+                }
             };
 
             const handleSendMessage = async () => {
-                if (isBusy) return; // ✅ 중복 전송 방지
+                if (isBusy) return;
+
                 const raw = chatInput.value;
                 const message = raw.trim();
                 if (!message) return;
@@ -162,7 +167,6 @@
                 chatInput.value = '';
                 autoResize();
 
-                // ✅ 잠금 + 로딩 시작
                 lockInput();
                 const loadingEl = showLoading();
 
@@ -170,34 +174,34 @@
                     const formData = new FormData();
                     formData.append('message', message);
 
-                    const response = await fetch('/chat', { method: 'POST', body: formData });
-                    const botResponse = await response.text();
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        body: formData
+                    });
 
+                    const botResponse = await response.text();
                     removeLoading(loadingEl);
 
                     if (!response.ok) {
                         addMessage('bot', `오류가 발생했어요 (${response.status}). 잠시 후 다시 시도해 주세요.`);
                         return;
                     }
+
                     addMessage('bot', botResponse);
                 } catch (err) {
                     console.error(err);
                     removeLoading(loadingEl);
                     addMessage('bot', '오류가 발생했어요. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.');
                 } finally {
-                    // ✅ 해제
                     unlockInput();
                 }
             };
 
             sendButton.addEventListener('click', handleSendMessage);
 
-            // Enter=전송 / Shift+Enter|Ctrl+Enter=줄바꿈, busy면 입력 무시
             chatInput.addEventListener('keydown', (e) => {
-                if (isBusy) {
-                    // 입력 자체를 막고 싶으면 아래 주석 해제: e.preventDefault();
-                    return;
-                }
+                if (isBusy) return;
+
                 if (e.key === 'Enter') {
                     const isShift = e.shiftKey;
                     const isCtrl = e.ctrlKey || e.metaKey;
@@ -217,6 +221,7 @@
             });
         });
     </script>
+
 
 
 </body>
