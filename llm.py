@@ -14,8 +14,8 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
-# ✅ Ollama용 LLM
-from langchain_community.chat_models import ChatOllama
+# ✅ vLLM(OpenAI 호환)용 LLM
+from langchain_openai import ChatOpenAI
 # ✅ HuggingFace bge-m3 임베딩
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 
@@ -25,10 +25,15 @@ import time
 import re
 
 # =========================================
-# 환경설정
+# 환경설정 (RunPod vLLM OpenAI 호환)
 # =========================================
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "https://olummmzfsw4k5k-11434.proxy.runpod.net")
-MODEL_LLM   = os.getenv("MODEL_LLM", "gemma3:27b")  # ollama pull gemma3:latest
+# 반드시 /v1 포함
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "https://zc2liu1ru5cjgm-8000.proxy.runpod.net/v1")
+# /v1/models 의 data[].id 값과 정확히 일치해야 함
+MODEL_LLM     = os.getenv("MODEL_LLM", "unsloth/gemma-3-27b-it")
+# 키 검증을 안 해도 ChatOpenAI에는 문자열이 필요 → 더미키 사용
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "not-needed")
+
 TOP_K       = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
 
@@ -132,18 +137,23 @@ def get_retriever():
 
     return vectorstore.as_retriever(search_kwargs={'k': TOP_K})
 
-# 4. LLM(챗봇) 인스턴스 생성 → Ollama
+# 4. LLM(챗봇) 인스턴스 생성 → vLLM(OpenAI 호환)
 def get_llm():
-    # 필요 시 num_predict, temperature, keep_alive 등 파라미터 추가 가능
-    return ChatOllama(
-        base_url=OLLAMA_HOST,
+    """
+    RunPod vLLM(OpenAI 호환 /v1) 엔드포인트로 연결.
+    - base_url: https://<...>/v1
+    - api_key : 서버가 키 검증을 안 해도 더미 문자열 필요
+    - model   : /v1/models에서 보이는 id 그대로 (예: unsloth/gemma-3-27b-it)
+    """
+    return ChatOpenAI(
+        base_url=VLLM_BASE_URL,
+        api_key=OPENAI_API_KEY,   # 더미여도 OK
         model=MODEL_LLM,
         # 아래는 선택: 속도/안정성 튜닝 예시
         # temperature=0.2,
+        # max_tokens=512,
         # top_p=0.9,
-        # num_predict=256,
-        # num_ctx=4096,
-        # keep_alive="30m",
+        # timeout=60,
     )
 
 # 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
