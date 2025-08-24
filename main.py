@@ -25,17 +25,17 @@ async def read_root(request: Request):
 
 # 채팅 API 엔드포인트 (SSE)
 @app.post("/chat")
-async def chat(request: Request, message: str = Form(...)):
+async def chat(message: str = Form(...)):
     ai_response_generator = get_ai_response(message)
 
-    async def stream_generator():
-        response_content = ""
-        for chunk in ai_response_generator:
-            response_content += chunk
-            await asyncio.sleep(0.01)
-        yield response_content
+    # 제너레이터에서 모두 모아서 문자열로 변환
+    chunks = []
+    for chunk in ai_response_generator:
+        chunks.append(chunk)
 
-    return StreamingResponse(stream_generator(), media_type="text/event-stream")
+    full_response = "".join(chunks)
+
+    return PlainTextResponse(full_response)
 
 # 🔎 호출 테스트용 API (SSE 없이 즉시 텍스트 반환)
 # - Postman에서 본문이 바로 보이도록 PlainText로 응답

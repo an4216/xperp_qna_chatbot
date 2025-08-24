@@ -40,14 +40,20 @@ VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
 # 세션별 대화 히스토리 저장소
 store = {}
 
+# =========================================
+# 전역 캐싱 변수
+# =========================================
+_cached_embeddings = None
+_cached_retriever = None
+_cached_llm = None
+_cached_rag_chain = None
+
+
 # -------------------------------
 # 유틸: few-shot 예시의 '출처' 문구 제거
 # -------------------------------
 def sanitize_examples(examples: list[dict]) -> list[dict]:
-    """
-    Few-shot 예시에 포함된 '출처/페이지' 표기(형식 예시)를 제거해서,
-    실제 인용은 반드시 context의 metadata(source/page)로만 하도록 보조한다.
-    """
+    start = time.perf_counter()
     sanitized = []
     for ex in examples:
         inp = ex.get("input", "")
@@ -66,7 +72,10 @@ def sanitize_examples(examples: list[dict]) -> list[dict]:
         ans = re.sub(r'\n{3,}', '\n\n', ans).strip()
 
         sanitized.append({"input": inp, "answer": ans})
+    elapsed = (time.perf_counter() - start) * 1000
+    print(f"[TIMER] sanitize_examples 완료 ({elapsed:.2f} ms)")
     return sanitized
+
 
 # 1. 세션별 대화 이력 객체 반환
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
@@ -74,15 +83,28 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
         store[session_id] = ChatMessageHistory()
     return store[session_id]
 
-# ✅ bge-m3 임베딩 인스턴스 생성
-def get_embeddings():
-    return HuggingFaceBgeEmbeddings(
-        model_name="BAAI/bge-m3",
-        encode_kwargs={"normalize_embeddings": True}  # 코사인 유사도 안정화
-    )
 
-# 2. 문서 로드 + 벡터스토어 생성 + retriever 반환
+# ✅ bge-m3 임베딩 인스턴스 생성 (전역 캐싱)
+def get_embeddings():
+    global _cached_embeddings
+    if _cached_embeddings is None:
+        start = time.perf_counter()
+        _cached_embeddings = HuggingFaceBgeEmbeddings(
+            model_name="BAAI/bge-m3",
+            encode_kwargs={"normalize_embeddings": True}  # 코사인 유사도 안정화
+        )
+        elapsed = (time.perf_counter() - start) * 1000
+        print(f"[TIMER] get_embeddings 최초 로드 완료 ({elapsed:.2f} ms)")
+    return _cached_embeddings
+
+
+# 2. 문서 로드 + 벡터스토어 생성 + retriever 반환 (전역 캐싱)
 def get_retriever():
+    global _cached_retriever
+    if _cached_retriever is not None:
+        return _cached_retriever
+
+    start = time.perf_counter()
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
     # 저장된 벡터스토어 로드
@@ -92,7 +114,10 @@ def get_retriever():
             get_embeddings(),
             allow_dangerous_deserialization=True
         )
-        return vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+        _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+        elapsed = (time.perf_counter() - start) * 1000
+        print(f"[TIMER] get_retriever: 기존 벡터스토어 로드 완료 ({elapsed:.2f} ms)")
+        return _cached_retriever
 
     # 없으면 새로 생성
     embedding = get_embeddings()
@@ -135,29 +160,34 @@ def get_retriever():
     vectorstore = FAISS.from_documents(split_docs, embedding)
     vectorstore.save_local(VECTOR_DIR)
 
-    return vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+    _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+    elapsed = (time.perf_counter() - start) * 1000
+    print(f"[TIMER] get_retriever: 신규 벡터스토어 생성 완료 ({elapsed:.2f} ms)")
+    return _cached_retriever
 
-# 4. LLM(챗봇) 인스턴스 생성 → vLLM(OpenAI 호환)
+
+# 4. LLM(챗봇) 인스턴스 생성 → vLLM(OpenAI 호환) (전역 캐싱)
 def get_llm():
-    """
-    RunPod vLLM(OpenAI 호환 /v1) 엔드포인트로 연결.
-    - base_url: https://<...>/v1
-    - api_key : 서버가 키 검증을 안 해도 더미 문자열 필요
-    - model   : /v1/models에서 보이는 id 그대로 (예: unsloth/gemma-3-27b-it)
-    """
-    return ChatOpenAI(
-        base_url=VLLM_BASE_URL,
-        api_key=OPENAI_API_KEY,   # 더미여도 OK
-        model=MODEL_LLM,
-        # 아래는 선택: 속도/안정성 튜닝 예시
-        # temperature=0.2,
-        # max_tokens=512,
-        # top_p=0.9,
-        # timeout=60,
-    )
+    global _cached_llm
+    if _cached_llm is None:
+        start = time.perf_counter()
+        _cached_llm = ChatOpenAI(
+            base_url=VLLM_BASE_URL,
+            api_key=OPENAI_API_KEY,   # 더미여도 OK
+            model=MODEL_LLM,
+            # temperature=0.2,
+            # max_tokens=512,
+            # top_p=0.9,
+            # timeout=60,
+        )
+        elapsed = (time.perf_counter() - start) * 1000
+        print(f"[TIMER] get_llm 최초 생성 완료 ({elapsed:.2f} ms)")
+    return _cached_llm
+
 
 # 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
 def get_history_retriever():
+    start = time.perf_counter()
     llm = get_llm()
     retriever = get_retriever()
 
@@ -180,13 +210,21 @@ def get_history_retriever():
     history_aware_retriever = create_history_aware_retriever(
         llm, retriever, contextualize_q_prompt
     )
+    elapsed = (time.perf_counter() - start) * 1000
+    print(f"[TIMER] get_history_retriever 완료 ({elapsed:.2f} ms)")
     return history_aware_retriever
 
-# 6. RAG 체인
+
+# 6. RAG 체인 (전역 캐싱)
 def get_rag_chain():
+    global _cached_rag_chain
+    if _cached_rag_chain is not None:
+        return _cached_rag_chain
+
+    start = time.perf_counter()
     llm = get_llm()
 
-    # ✅ 예시를 클린업해서 사용 (예시 출처는 무시되도록)
+    # ✅ 예시를 클린업해서 사용
     cleaned_examples = sanitize_examples(answer_examples)
 
     example_prompt = ChatPromptTemplate.from_messages(
@@ -200,7 +238,6 @@ def get_rag_chain():
         examples=cleaned_examples,
     )
 
-    # ✅ 실제 출처는 context의 metadata(source/page)만 사용하도록 명시
     system_prompt = (
            """
            당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.
@@ -280,7 +317,6 @@ def get_rag_chain():
            """
     )
 
-
     qa_prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
@@ -294,18 +330,22 @@ def get_rag_chain():
     question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
     rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
-    conversational_rag_chain = RunnableWithMessageHistory(
+    _cached_rag_chain = RunnableWithMessageHistory(
         rag_chain,
         get_session_history,
-        input_messages_key="input",       # ✅ 'input' 키 사용
+        input_messages_key="input",
         history_messages_key="chat_history",
         output_messages_key="answer",
     ).pick('answer')
 
-    return conversational_rag_chain
+    elapsed = (time.perf_counter() - start) * 1000
+    print(f"[TIMER] get_rag_chain 최초 생성 완료 ({elapsed:.2f} ms)")
+    return _cached_rag_chain
+
 
 # 7. 최종 답변 생성 함수
 def get_ai_response(user_message):
+    start = time.perf_counter()
     rag_chain = get_rag_chain()
 
     # ✅ 'input' 키로 전달
@@ -315,10 +355,12 @@ def get_ai_response(user_message):
     )
 
     def timed_stream():
-        start = time.perf_counter()
+        inner_start = time.perf_counter()
         for chunk in stream:
             yield chunk
-        elapsed = time.perf_counter() - start
-        yield f"\n\n⏱ {elapsed:.2f}s"
+        elapsed_inner = time.perf_counter() - inner_start
+        yield f"\n\n⏱ 소요시간: {elapsed_inner:.2f}s"
 
+    elapsed = (time.perf_counter() - start) * 1000
+    print(f"[TIMER] get_ai_response 준비 완료 ({elapsed:.2f} ms)")
     return timed_stream()
