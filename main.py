@@ -23,22 +23,24 @@ async def read_root(request: Request):
     # templates/chat.html 렌더링
     return templates.TemplateResponse("chat.html", {"request": request})
 
-# 채팅 API 엔드포인트 (SSE)
+
+# ✅ 채팅 API 엔드포인트 (스트리밍 버전)
 @app.post("/chat")
 async def chat(message: str = Form(...)):
     ai_response_generator = get_ai_response(message)
 
-    # 제너레이터에서 모두 모아서 문자열로 변환
-    chunks = []
-    for chunk in ai_response_generator:
-        chunks.append(chunk)
+    async def event_stream():
+        # 제너레이터에서 chunk 단위로 즉시 전송
+        for chunk in ai_response_generator:
+            yield chunk
+            # 너무 빠른 전송 방지 (선택 사항)
+            await asyncio.sleep(0.01)
 
-    full_response = "".join(chunks)
+    # text/event-stream 대신 text/plain 으로 하면 브라우저 fetch+reader에서 읽힘
+    return StreamingResponse(event_stream(), media_type="text/plain")
 
-    return PlainTextResponse(full_response)
 
-# 🔎 호출 테스트용 API (SSE 없이 즉시 텍스트 반환)
-# - Postman에서 본문이 바로 보이도록 PlainText로 응답
+# 🔎 호출 테스트용 API (전체 모아서 반환)
 @app.post("/chat-test")
 async def chat_test(message: str = Form(...)):
     ai_response_generator = get_ai_response(message)
@@ -46,6 +48,7 @@ async def chat_test(message: str = Form(...)):
     for chunk in ai_response_generator:
         chunks.append(chunk)
     return PlainTextResponse("".join(chunks))
+
 
 # 서버 실행 (개발용)
 if __name__ == "__main__":

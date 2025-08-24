@@ -179,15 +179,34 @@
                         body: formData
                     });
 
-                    const botResponse = await response.text();
-                    removeLoading(loadingEl);
-
-                    if (!response.ok) {
+                    if (!response.ok || !response.body) {
+                        removeLoading(loadingEl);
                         addMessage('bot', `오류가 발생했어요 (${response.status}). 잠시 후 다시 시도해 주세요.`);
                         return;
                     }
 
-                    addMessage('bot', botResponse);
+                    removeLoading(loadingEl);
+
+                    // ✅ 스트리밍 읽기
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    let botMessage = '';
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'bot-message-container';
+                    const botDiv = document.createElement('div');
+                    botDiv.className = 'bot-message';
+                    wrapper.appendChild(botDiv);
+                    chatContent.appendChild(wrapper);
+                    scrollToBottom();
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        botMessage += decoder.decode(value, { stream: true });
+                        botDiv.innerHTML = botMessage.replace(/\n/g, '<br>');
+                        scrollToBottom();
+                    }
                 } catch (err) {
                     console.error(err);
                     removeLoading(loadingEl);
@@ -196,6 +215,7 @@
                     unlockInput();
                 }
             };
+
 
             sendButton.addEventListener('click', handleSendMessage);
 
