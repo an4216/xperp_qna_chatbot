@@ -1,10 +1,15 @@
+# pipelines/02_evaluate.py
 import os
 import json
 import time
 import numpy as np
+from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
 
 from llm import get_ai_response, get_embeddings, get_llm
+
+# MLflow 추가
+import mlflow
 
 # ================================
 # Cosine Similarity 기반 평가
@@ -25,9 +30,6 @@ def similarity_score(expected: str, actual: str) -> float:
 # LLM Judge 기반 평가
 # ================================
 def llm_judge_score(expected: str, actual: str) -> float:
-    """
-    LLM에게 직접 채점을 요청 (0~100점)
-    """
     llm = get_llm()
     prompt = f"""
     다음은 사용자가 기대한 답변과 실제 모델의 답변입니다.
@@ -48,7 +50,7 @@ def llm_judge_score(expected: str, actual: str) -> float:
     result = llm.invoke(prompt)
     try:
         score = int("".join([c for c in result.content if c.isdigit()]))
-        return min(max(score, 0), 100)  # 0~100 범위 보정
+        return min(max(score, 0), 100)
     except:
         return 0
 
@@ -71,11 +73,9 @@ def run_evaluation(eval_data):
 
         print(f"🤖 모델 답변: {response}")
 
-        # Cosine Similarity 점수
         sim_score = similarity_score(expected, response)
         print(f"📊 유사도 점수: {sim_score:.2f}")
 
-        # LLM Judge 점수
         judge_score = llm_judge_score(expected, response)
         print(f"🧑‍⚖️ LLM Judge 점수: {judge_score:.2f}")
 
@@ -91,6 +91,29 @@ def run_evaluation(eval_data):
 
 
 # ================================
+# Feedback 로드
+# ================================
+def load_feedback(feedback_file="logs/feedback.jsonl"):
+    feedback_data = []
+    if not os.path.exists(feedback_file):
+        return feedback_data
+
+    with open(feedback_file, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                fb = json.loads(line.strip())
+                # up만 반영
+                if fb.get("feedback") == "up" and fb.get("message") and fb.get("response"):
+                    feedback_data.append({
+                        "question": fb["message"],
+                        "expected": fb["response"]
+                    })
+            except:
+                continue
+    return feedback_data
+
+
+# ================================
 # Main
 # ================================
 if __name__ == "__main__":
@@ -99,15 +122,41 @@ if __name__ == "__main__":
         print(f"❌ 평가셋 파일 없음: {eval_file}")
         exit(1)
 
+    # 1) 기존 평가셋 로드
     with open(eval_file, "r", encoding="utf-8") as f:
         eval_data = json.load(f)
 
+    # 2) feedback 반영
+    feedback_data = load_feedback()
+    if feedback_data:
+        print(f"👍 피드백 기반 QA {len(feedback_data)}개 추가됨")
+        eval_data.extend(feedback_data)
+
     print(f"🚀 총 {len(eval_data)}개 질문에 대해 평가 시작...")
 
+    # 3) 평가 실행
     results = run_evaluation(eval_data)
 
+    # 4) 결과 저장
     os.makedirs("outputs", exist_ok=True)
-    with open("outputs/eval_results.json", "w", encoding="utf-8") as f:
+    out_file = "outputs/eval_results.json"
+    with open(out_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
+    print(f"✅ 평가 완료! 결과 저장됨: {out_file}")
 
-    print("✅ 평가 완료! 결과 저장됨: outputs/eval_results.json")
+    # 5) MLflow 로깅
+    avg_similarity = sum(r["similarity_score"] for r in results) / len(results)
+    avg_judge = sum(r["llm_judge_score"] for r in results) / len(results)
+
+    mlflow.set_experiment("xperp_chatbot_eval")
+    with mlflow.start_run():
+        mlflow.log_param("embedding_model", "BAAI/bge-m3")
+        mlflow.log_param("llm_model", "unsloth/gemma-3-27b-it")
+        mlflow.log_param("eval_size", len(eval_data))
+
+        mlflow.log_metric("avg_similarity", avg_similarity)
+        mlflow.log_metric("avg_judge", avg_judge)
+
+        mlflow.log_artifact(out_file)
+
+    print("📊 MLflow에 평가 결과 기록 완료!")

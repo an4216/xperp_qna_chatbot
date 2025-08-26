@@ -35,7 +35,11 @@ class DocsEventHandler(FileSystemEventHandler):
             subprocess.run([sys.executable, "-m", "pipelines.01_ingest"], check=True)
             logging.info("[WATCHDOG] 01_ingest 실행 완료 ✅")
 
-            # 2. 평가 실행
+            # 2. 평가셋 자동 생성
+            subprocess.run([sys.executable, "-m", "pipelines.02_generate_eval"], check=True)
+            logging.info("[WATCHDOG] 02_generate_eval 실행 완료 ✅")
+
+            # 3. 평가 실행
             subprocess.run([sys.executable, "-m", "pipelines.02_evaluate"], check=True)
             logging.info("[WATCHDOG] 02_evaluate 실행 완료 ✅")
 

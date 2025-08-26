@@ -91,3 +91,4 @@ sentencepiece>=0.2.0
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
+mlflow==2.15.1
