@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, Body
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import uvicorn
 from llm import get_ai_response
 import asyncio
+import json, os
 
 # FastAPI 앱 생성
 app = FastAPI()
@@ -20,7 +21,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # 루트 경로 ("/")
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    # templates/chat.html 렌더링
     return templates.TemplateResponse("chat.html", {"request": request})
 
 
@@ -30,13 +30,10 @@ async def chat(message: str = Form(...)):
     ai_response_generator = get_ai_response(message)
 
     async def event_stream():
-        # 제너레이터에서 chunk 단위로 즉시 전송
         for chunk in ai_response_generator:
             yield chunk
-            # 너무 빠른 전송 방지 (선택 사항)
             await asyncio.sleep(0.01)
 
-    # text/event-stream 대신 text/plain 으로 하면 브라우저 fetch+reader에서 읽힘
     return StreamingResponse(event_stream(), media_type="text/plain")
 
 
@@ -48,6 +45,16 @@ async def chat_test(message: str = Form(...)):
     for chunk in ai_response_generator:
         chunks.append(chunk)
     return PlainTextResponse("".join(chunks))
+
+
+# ✅ 사용자 피드백 저장 API
+@app.post("/feedback")
+async def feedback(data: dict = Body(...)):
+    os.makedirs("logs", exist_ok=True)
+    log_path = "logs/feedback.jsonl"
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+    return {"status": "ok"}
 
 
 # 서버 실행 (개발용)

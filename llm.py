@@ -6,7 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, FewS
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
@@ -19,10 +19,14 @@ from langchain_openai import ChatOpenAI
 # ✅ HuggingFace bge-m3 임베딩
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 
+from pathlib import Path
+
 from config import answer_examples
 import os
 import time
 import re
+import json
+
 
 # =========================================
 # 환경설정 (RunPod vLLM OpenAI 호환)
@@ -48,6 +52,18 @@ _cached_retriever = None
 _cached_llm = None
 _cached_rag_chain = None
 
+META_PATH = Path("data/artifacts/index_meta.json")
+_cached_retriever = None
+_cached_fingerprint = None
+
+def _load_fingerprint():
+    if META_PATH.exists():
+        try:
+            meta = json.loads(META_PATH.read_text(encoding="utf-8"))
+            return meta.get("fingerprint")
+        except Exception:
+            return None
+    return None
 
 # -------------------------------
 # 유틸: few-shot 예시의 '출처' 문구 제거
@@ -100,89 +116,83 @@ def get_embeddings():
 
 # 2. 문서 로드 + 벡터스토어 생성 + retriever 반환 (전역 캐싱)
 def get_retriever():
-    global _cached_retriever
-    if _cached_retriever is not None:
-        return _cached_retriever
+    global _cached_retriever, _cached_fingerprint
 
     start = time.perf_counter()
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
-    # 저장된 벡터스토어 로드
-    if os.path.exists(os.path.join(VECTOR_DIR, "index.faiss")):
-        vectorstore = FAISS.load_local(
-            VECTOR_DIR,
-            get_embeddings(),
-            allow_dangerous_deserialization=True
-        )
+    # 최신 fingerprint 불러오기
+    current_fp = None
+    if META_PATH.exists():
+        try:
+            import json
+            current_fp = json.loads(META_PATH.read_text(encoding="utf-8")).get("fingerprint")
+        except Exception:
+            current_fp = None
+
+    # retriever가 없거나, fingerprint가 변경되었으면 새로 로드
+    if _cached_retriever is None or _cached_fingerprint != current_fp:
+        print("[INFO] retriever reload triggered")
+
+        # 저장된 벡터스토어 있으면 로드
+        if os.path.exists(os.path.join(VECTOR_DIR, "index.faiss")):
+            vectorstore = FAISS.load_local(
+                VECTOR_DIR,
+                get_embeddings(),
+                allow_dangerous_deserialization=True
+            )
+            _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+            _cached_fingerprint = current_fp
+            elapsed = (time.perf_counter() - start) * 1000
+            print(f"[TIMER] get_retriever: 기존 벡터스토어 로드 완료 ({elapsed:.2f} ms)")
+            return _cached_retriever
+
+        # 벡터스토어가 없으면 새로 생성
+        embedding = get_embeddings()
+        documents = []
+        docs_dirs = ["docs/manual", "docs/qna"]
+
+        for docs_dir in docs_dirs:
+            if not os.path.isdir(docs_dir):
+                continue
+            for filename in os.listdir(docs_dir):
+                file_path = os.path.join(docs_dir, filename)
+                manual_name = os.path.splitext(filename)[0]
+
+                if filename.endswith(".txt"):
+                    loader = TextLoader(file_path, encoding='utf-8')
+                    docs = loader.load()
+                    for doc in docs:
+                        doc.metadata["source"] = manual_name
+                    documents.extend(docs)
+
+                elif filename.endswith(".pdf"):
+                    loader = PyPDFLoader(file_path)
+                    pages = loader.load()
+                    for i, page in enumerate(pages):
+                        page.metadata["source"] = manual_name
+                        page.metadata["page"] = i + 1
+                        citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
+                        page.page_content += citation
+                        documents.append(page)
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        split_docs = splitter.split_documents(documents)
+        split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
+
+        MAX_CHUNKS = 500
+        if len(split_docs) > MAX_CHUNKS:
+            split_docs = split_docs[:MAX_CHUNKS]
+
+        vectorstore = FAISS.from_documents(split_docs, embedding)
+        vectorstore.save_local(VECTOR_DIR)
+
         _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+        _cached_fingerprint = current_fp
         elapsed = (time.perf_counter() - start) * 1000
-        print(f"[TIMER] get_retriever: 기존 벡터스토어 로드 완료 ({elapsed:.2f} ms)")
-        return _cached_retriever
+        print(f"[TIMER] get_retriever: 신규 벡터스토어 생성 완료 ({elapsed:.2f} ms)")
 
-    # 없으면 새로 생성
-    embedding = get_embeddings()
-    documents = []
-    docs_dirs = ["docs/manual", "docs/qna"]
-
-    for docs_dir in docs_dirs:
-        if not os.path.isdir(docs_dir):
-            continue
-        for filename in os.listdir(docs_dir):
-            file_path = os.path.join(docs_dir, filename)
-            manual_name = os.path.splitext(filename)[0]
-
-            if filename.endswith(".txt"):
-                loader = TextLoader(file_path, encoding='utf-8')
-                docs = loader.load()
-                for doc in docs:
-                    doc.metadata["source"] = manual_name
-                documents.extend(docs)
-
-            elif filename.endswith(".pdf"):
-                loader = PyPDFLoader(file_path)
-                pages = loader.load()
-                for i, page in enumerate(pages):
-                    page.metadata["source"] = manual_name
-                    page.metadata["page"] = i + 1
-                    # ✅ 출처 정보 삽입 (실제 인용은 여기서만)
-                    citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
-                    page.page_content += citation
-                    documents.append(page)
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    split_docs = splitter.split_documents(documents)
-    split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
-
-    MAX_CHUNKS = 500
-    if len(split_docs) > MAX_CHUNKS:
-        split_docs = split_docs[:MAX_CHUNKS]
-
-    vectorstore = FAISS.from_documents(split_docs, embedding)
-    vectorstore.save_local(VECTOR_DIR)
-
-    _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
-    elapsed = (time.perf_counter() - start) * 1000
-    print(f"[TIMER] get_retriever: 신규 벡터스토어 생성 완료 ({elapsed:.2f} ms)")
     return _cached_retriever
-
-
-# 4. LLM(챗봇) 인스턴스 생성 → vLLM(OpenAI 호환) (전역 캐싱)
-def get_llm():
-    global _cached_llm
-    if _cached_llm is None:
-        start = time.perf_counter()
-        _cached_llm = ChatOpenAI(
-            base_url=VLLM_BASE_URL,
-            api_key=OPENAI_API_KEY,   # 더미여도 OK
-            model=MODEL_LLM,
-            # temperature=0.2,
-            # max_tokens=512,
-            # top_p=0.9,
-            # timeout=60,
-        )
-        elapsed = (time.perf_counter() - start) * 1000
-    return _cached_llm
-
 
 # 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
 def get_history_retriever():
@@ -212,6 +222,18 @@ def get_history_retriever():
     elapsed = (time.perf_counter() - start) * 1000
     return history_aware_retriever
 
+# 4. LLM(챗봇) 인스턴스 생성 → vLLM(OpenAI 호환) (전역 캐싱)
+def get_llm():
+    global _cached_llm
+    if _cached_llm is None:
+        start = time.perf_counter()
+        _cached_llm = ChatOpenAI(
+            base_url=VLLM_BASE_URL,
+            api_key=OPENAI_API_KEY,
+            model=MODEL_LLM,
+        )
+        elapsed = (time.perf_counter() - start) * 1000
+    return _cached_llm
 
 # 6. RAG 체인 (전역 캐싱)
 def get_rag_chain():

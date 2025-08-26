@@ -1,4 +1,4 @@
-@import url("https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css"); 
+@import url("https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css");
 body, html {
     margin: 0;
     padding: 0;
@@ -435,4 +435,26 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
         animation: none;
         opacity: .7;
     }
+}
+
+.feedback-buttons {
+    margin-top: 8px;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-start; /* 왼쪽 정렬 (원하면 center로 바꿔도 됨) */
+}
+
+.feedback-buttons .btn-feedback {
+    background: #f1f3f5;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.2s;
+}
+
+.feedback-buttons .btn-feedback:hover {
+    background: #e9ecef;
+    transform: translateY(-1px);
 }
