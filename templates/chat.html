@@ -9,299 +9,300 @@
 </head>
 
 <body>
-<div class="container">
-    <!-- 헤더 -->
-    <header class="header">
-        <nav>
-            <div class="logo">
-                <a href="#" class="chat-home">
-                    <img data-logo="aegisep" src="/static/images/aegis-logo.svg">
-                </a>
-                <span class="v_line"></span>
-                <img data-logo="xperp" src="/static/images/xperp-logo.svg">
-            </div>
-            <div class="homepage-link">
-                <a href="https://www.aegisep.com" target="_blank">공식 홈페이지 바로가기</a>
-            </div>
-        </nav>
-    </header>
+    <div class="container">
+        <!-- 헤더 -->
+        <header class="header">
+            <nav>
+                <div class="logo">
+                    <a href="#" class="chat-home">
+                        <img data-logo="aegisep" src="/static/images/aegis-logo.svg">
+                    </a>
+                    <span class="v_line"></span>
+                    <img data-logo="xperp" src="/static/images/xperp-logo.svg">
+                </div>
+                <div class="homepage-link">
+                    <a href="https://www.aegisep.com" target="_blank">공식 홈페이지 바로가기</a>
+                </div>
+            </nav>
+        </header>
 
-    <!-- 본문 -->
-    <div class="main-content">
-        <main class="chat-area">
-            <div class="chat-container">
-                <div class="chat-content">
-                    <div class="cover-content">
-                        <h1>XpERP 상담 챗봇에 오신 것을 환영합니다.</h1>
-                        <p>공동주택 관리 프로그램 XpERP의 사용법, 오류에 대해 궁금한 점이 있다면 언제든 문의해 주세요!</p>
-                        <div class="cover-quesion-preview" aria-live="polite">
-                            <div class="line">Q. 전출처리는 어떻게 하나요?</div>
-                            <div class="line">Q. 입주민 차량 등록 방법이 궁금해요</div>
-                            <div class="line">Q. 관리비 조회 방법을 알려주세요</div>
+        <!-- 본문 -->
+        <div class="main-content">
+            <main class="chat-area">
+                <div class="chat-container">
+                    <div class="chat-content">
+                        <div class="cover-content">
+                            <h1>XpERP 상담 챗봇에 오신 것을 환영합니다.</h1>
+                            <p>공동주택 관리 프로그램 XpERP의 사용법, 오류에 대해 궁금한 점이 있다면 언제든 문의해 주세요!</p>
+                            <div class="cover-quesion-preview" aria-live="polite">
+                                <div class="line">Q. 전출처리는 어떻게 하나요?</div>
+                                <div class="line">Q. 입주민 차량 등록 방법이 궁금해요</div>
+                                <div class="line">Q. 관리비 조회 방법을 알려주세요</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- 입력창 -->
-            <div class="chat-input-area">
-                <div class="chat-input-wrapper">
-                    <textarea class="chat-input" rows="1" placeholder="XpERP 사용법이나 오류에 대해 물어보세요."
-                              aria-label="챗봇 메시지 입력"></textarea>
-                    <button class="send-button" aria-label="메시지 보내기">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                             fill="none" stroke="currentColor" stroke-width="2"
-                             stroke-linecap="round" stroke-linejoin="round"
-                             style="color:#fff;">
-                            <path d="m5 12 7-7 7 7"></path>
-                            <path d="M12 19V5"></path>
-                        </svg>
-                    </button>
+                <!-- 입력창 -->
+                <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <textarea class="chat-input" rows="1" placeholder="XpERP 사용법이나 오류에 대해 물어보세요."
+                            aria-label="챗봇 메시지 입력"></textarea>
+                        <button class="send-button" aria-label="메시지 보내기"></button>
+                    </div>
                 </div>
-            </div>
-        </main>
+            </main>
+        </div>
     </div>
-</div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const chatContainer = document.querySelector('.chat-container');
-        const chatContent = document.querySelector('.chat-content');
-        const chatInput = document.querySelector('.chat-input');
-        const sendButton = document.querySelector('.send-button');
-        const coverContent = document.querySelector('.cover-content');
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const chatContainer = document.querySelector('.chat-container');
+            const chatContent = document.querySelector('.chat-content');
+            const chatInput = document.querySelector('.chat-input');
+            const sendButton = document.querySelector('.send-button');
+            const coverContent = document.querySelector('.cover-content');
 
-        let hasSentFirstMessage = false;
-        let isBusy = false;
-        let lastUserMessage = "";
+            let hasSentFirstMessage = false;
+            let isBusy = false;
+            let lastUserMessage = "";
 
-        const escapeHtml = (s) =>
-            s.replace(/[&<>"']/g, (c) => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            }[c]));
+            const escapeHtml = (s) =>
+                s.replace(/[&<>"']/g, (c) => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                }[c]));
 
-        const autoResize = () => {
-            chatInput.style.height = 'auto';
-            chatInput.style.height = chatInput.scrollHeight + 'px';
-        };
+            const autoResize = () => {
+                chatInput.style.height = 'auto';
+                chatInput.style.height = chatInput.scrollHeight + 'px';
+            };
 
-        const lockInput = () => {
-            isBusy = true;
-            sendButton.disabled = true;
-            chatInput.setAttribute('aria-busy', 'true');
-        };
+            const lockInput = () => {
+                isBusy = true;
+                sendButton.disabled = true;
+                sendButton.classList.add('status-busy');
+                chatInput.setAttribute('aria-busy', 'true');
+            };
 
-        const unlockInput = () => {
-            isBusy = false;
-            sendButton.disabled = false;
-            chatInput.removeAttribute('aria-busy');
-            chatInput.focus();
-        };
+            // ✅ 버튼 활성/비활성 갱신 함수 추가
+            const updateSendButtonState = () => {
+                sendButton.disabled = !chatInput.value.trim();
+            };
 
-        const scrollToBottom = () => {
-            chatContainer.scrollTo({
-                top: chatContainer.scrollHeight,
-                behavior: 'smooth'
-            });
-        };
+            const unlockInput = () => {
+                isBusy = false;
+                sendButton.classList.remove('status-busy');
+                chatInput.removeAttribute('aria-busy');
+                chatInput.focus();
 
-        const addMessage = (sender, message) => {
-            let html = '';
-            if (sender === 'user') {
-                html = `<div class="user-message-container"><div class="user-message">${escapeHtml(message).replace(/\n/g, '<br>')}</div></div>`;
-            } else {
-                html = `<div class="bot-message-container"><div class="bot-message">${message.replace(/\n/g, '<br>')}</div></div>`;
-            }
-            chatContent.insertAdjacentHTML('beforeend', html);
-            scrollToBottom();
-        };
+                updateSendButtonState(); // ✅ unlock 시에도 버튼 상태 갱신
+            };
 
-        // ✅ feedback 이벤트 처리
-        chatContent.addEventListener('click', async (e) => {
-            // 👍👎 버튼 클릭
-            if (e.target.classList.contains('btn-feedback')) {
-                const feedback = e.target.dataset.feedback;
-                const msgId = e.target.dataset.msgId;
-                const container = chatContent.querySelector(`[data-msg-id="${msgId}"]`);
-                const responseText = container.querySelector('.bot-message').innerText;
-
-                if (feedback === "down") {
-                    const btnWrapper = e.target.parentNode;
-                    if (!btnWrapper.querySelector('.feedback-reason-box')) {
-                        const reasonBox = document.createElement('div');
-                        reasonBox.className = "feedback-reason-box";
-                        reasonBox.innerHTML = `
-                        <textarea class="feedback-reason"
-                            placeholder="비추 사유를 입력해주세요..."
-                            rows="1"></textarea>
-                        <button class="btn-send-reason" data-msg-id="${msgId}">제출</button>
-                    `;
-                        btnWrapper.appendChild(reasonBox);
-                        reasonBox.querySelector('textarea').focus();
-                    }
-                    return; // 서버 전송은 제출 버튼에서
-                }
-
-                // 👍 즉시 전송
-                const payload = {
-                    message: lastUserMessage,
-                    response: responseText,
-                    feedback: "up",
-                    timestamp: new Date().toISOString()
-                };
-                try {
-                    await fetch('/feedback', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    e.target.parentNode.innerHTML = `<span style="font-size:13px;color:#666;">피드백 저장됨 ✅</span>`;
-                } catch (err) {
-                    console.error("feedback 전송 실패", err);
-                }
-            }
-
-            // 👎 제출 버튼
-            if (e.target.classList.contains('btn-send-reason')) {
-                const msgId = e.target.dataset.msgId;
-                const container = chatContent.querySelector(`[data-msg-id="${msgId}"]`);
-                const responseText = container.querySelector('.bot-message').innerText;
-                const textarea = container.querySelector('.feedback-reason');
-                const reasonText = textarea.value.trim();
-
-                const payload = {
-                    message: lastUserMessage,
-                    response: responseText,
-                    feedback: "down",
-                    reason: textarea.value.trim(),
-                    timestamp: new Date().toISOString()
-                };
-
-                if (reasonText.length < 10) {
-                    alert("비추 사유는 최소 10자 이상 입력해주세요.");
-                    textarea.focus();
-                    return;
-                }
-
-                try {
-                    await fetch('/feedback', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    e.target.parentNode.innerHTML = `<span style="font-size:13px;color:#666;">비추 사유 저장됨 ✅</span>`;
-                } catch (err) {
-                    console.error("비추 사유 전송 실패", err);
-                }
-            }
-        });
-
-        // ✅ 메시지 전송 처리
-        const handleSendMessage = async () => {
-            if (isBusy) return;
-
-            const raw = chatInput.value;
-            const message = raw.trim();
-            if (!message) return;
-
-            if (!hasSentFirstMessage && coverContent) {
-                coverContent.style.display = 'none';
-                hasSentFirstMessage = true;
-            }
-
-            addMessage('user', raw);
-            chatInput.value = '';
-            autoResize();
-            lastUserMessage = message;
-
-            lockInput();
-
-            try {
-                const formData = new FormData();
-                formData.append('message', message);
-
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    body: formData
+            const scrollToBottom = () => {
+                chatContainer.scrollTo({
+                    top: chatContainer.scrollHeight,
+                    behavior: 'smooth'
                 });
+            };
 
-                if (!response.ok || !response.body) {
-                    addMessage('bot', `오류 발생 (${response.status})`);
-                    return;
+            const addMessage = (sender, message) => {
+                let html = '';
+                if (sender === 'user') {
+                    html = `<div class="user-message-container"><div class="user-message">${escapeHtml(message).replace(/\n/g, '<br>')}</div></div>`;
+                } else {
+                    html = `<div class="bot-message-container"><div class="bot-message">${message.replace(/\n/g, '<br>')}</div></div>`;
                 }
-
-                const wrapper = document.createElement('div');
-                const msgId = Date.now();
-                wrapper.className = 'bot-message-container';
-                wrapper.dataset.msgId = msgId;
-
-                const botDiv = document.createElement('div');
-                botDiv.className = 'bot-message';
-
-                // 로딩 dots
-                const loadingEl = document.createElement('span');
-                loadingEl.className = 'loading-dots';
-                loadingEl.innerHTML = `
-                <span class="loading-dot"></span>
-                <span class="loading-dot"></span>
-                <span class="loading-dot"></span>
-            `;
-                botDiv.appendChild(loadingEl);
-                wrapper.appendChild(botDiv);
-                chatContent.appendChild(wrapper);
+                chatContent.insertAdjacentHTML('beforeend', html);
                 scrollToBottom();
+            };
 
-                // 스트리밍
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let botMessage = '';
+            // ✅ feedback 이벤트 처리
+            chatContent.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('btn-feedback')) {
+                    const feedback = e.target.dataset.feedback;
+                    const msgId = e.target.dataset.msgId;
+                    const container = chatContent.querySelector(`[data-msg-id="${msgId}"]`);
+                    const responseText = container.querySelector('.bot-message').innerText;
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                    if (feedback === "down") {
+                        const btnWrapper = e.target.parentNode;
+                        if (!btnWrapper.querySelector('.feedback-reason-box')) {
+                            const reasonBox = document.createElement('div');
+                            reasonBox.className = "feedback-reason-box";
+                            reasonBox.innerHTML = `
+                                <textarea class="feedback-reason"
+                                    placeholder="비추 사유를 입력해주세요..."
+                                    rows="1"></textarea>
+                                <button class="btn-send-reason" data-msg-id="${msgId}">제출</button>
+                            `;
+                            btnWrapper.appendChild(reasonBox);
+                            reasonBox.querySelector('textarea').focus();
+                        }
+                        return;
+                    }
 
-                    if (loadingEl) loadingEl.remove();
-
-                    botMessage += decoder.decode(value, { stream: true });
-                    botDiv.innerHTML = botMessage.replace(/\n/g, '<br>');
-                    scrollToBottom();
+                    // 👍 즉시 전송
+                    const payload = {
+                        message: lastUserMessage,
+                        response: responseText,
+                        feedback: "up",
+                        timestamp: new Date().toISOString()
+                    };
+                    try {
+                        await fetch('/feedback', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        e.target.parentNode.innerHTML = `<span style="font-size:13px;color:#666;">피드백 저장됨 ✅</span>`;
+                    } catch (err) {
+                        console.error("feedback 전송 실패", err);
+                    }
                 }
 
-                // ✅ 답변 끝난 뒤 feedback 버튼 추가
-                const feedbackDiv = document.createElement('div');
-                feedbackDiv.className = 'feedback-buttons';
-                feedbackDiv.innerHTML = `
-                <button class="btn-feedback" data-feedback="up" data-msg-id="${msgId}">👍</button>
-                <button class="btn-feedback" data-feedback="down" data-msg-id="${msgId}">👎</button>
-            `;
-                wrapper.appendChild(feedbackDiv);
+                if (e.target.classList.contains('btn-send-reason')) {
+                    const msgId = e.target.dataset.msgId;
+                    const container = chatContent.querySelector(`[data-msg-id="${msgId}"]`);
+                    const responseText = container.querySelector('.bot-message').innerText;
+                    const textarea = container.querySelector('.feedback-reason');
+                    const reasonText = textarea.value.trim();
 
-            } catch (err) {
-                console.error(err);
-                addMessage('bot', '오류 발생. 네트워크 확인 후 다시 시도해주세요.');
-            } finally {
-                unlockInput();
-            }
-        };
+                    const payload = {
+                        message: lastUserMessage,
+                        response: responseText,
+                        feedback: "down",
+                        reason: textarea.value.trim(),
+                        timestamp: new Date().toISOString()
+                    };
 
-        sendButton.addEventListener('click', handleSendMessage);
-        chatInput.addEventListener('keydown', (e) => {
-            if (isBusy) return;
-            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+                    if (reasonText.length < 10) {
+                        alert("비추 사유는 최소 10자 이상 입력해주세요.");
+                        textarea.focus();
+                        return;
+                    }
+
+                    try {
+                        await fetch('/feedback', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        e.target.parentNode.innerHTML = `<span style="font-size:13px;color:#666;">비추 사유 저장됨 ✅</span>`;
+                    } catch (err) {
+                        console.error("비추 사유 전송 실패", err);
+                    }
+                }
+            });
+
+            const handleSendMessage = async () => {
+                if (isBusy) return;
+
+                const raw = chatInput.value;
+                const message = raw.trim();
+                if (!message) return;
+
+                if (!hasSentFirstMessage && coverContent) {
+                    coverContent.style.display = 'none';
+                    hasSentFirstMessage = true;
+                }
+
+                addMessage('user', raw);
+                chatInput.value = '';
+                autoResize();
+                lastUserMessage = message;
+
+                lockInput();
+
+                try {
+                    const formData = new FormData();
+                    formData.append('message', message);
+
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok || !response.body) {
+                        addMessage('bot', `오류 발생 (${response.status})`);
+                        return;
+                    }
+
+                    const wrapper = document.createElement('div');
+                    const msgId = Date.now();
+                    wrapper.className = 'bot-message-container';
+                    wrapper.dataset.msgId = msgId;
+
+                    const botDiv = document.createElement('div');
+                    botDiv.className = 'bot-message';
+
+                    const loadingEl = document.createElement('span');
+                    loadingEl.className = 'loading-dots';
+                    loadingEl.innerHTML = `
+                        <span class="loading-dot"></span>
+                        <span class="loading-dot"></span>
+                        <span class="loading-dot"></span>
+                    `;
+                    botDiv.appendChild(loadingEl);
+                    wrapper.appendChild(botDiv);
+                    chatContent.appendChild(wrapper);
+                    scrollToBottom();
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    let botMessage = '';
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        if (loadingEl) loadingEl.remove();
+
+                        botMessage += decoder.decode(value, { stream: true });
+                        botDiv.innerHTML = botMessage.replace(/\n/g, '<br>');
+                        scrollToBottom();
+                    }
+
+                    const feedbackDiv = document.createElement('div');
+                    feedbackDiv.className = 'feedback-buttons';
+                    feedbackDiv.innerHTML = `
+                        <button class="btn-feedback" data-feedback="up" data-msg-id="${msgId}">👍</button>
+                        <button class="btn-feedback" data-feedback="down" data-msg-id="${msgId}">👎</button>
+                    `;
+                    wrapper.appendChild(feedbackDiv);
+
+                } catch (err) {
+                    console.error(err);
+                    addMessage('bot', '오류 발생. 네트워크 확인 후 다시 시도해주세요.');
+                } finally {
+                    unlockInput();
+                }
+            };
+
+            sendButton.addEventListener('click', handleSendMessage);
+            chatInput.addEventListener('keydown', (e) => {
+                if (isBusy) return;
+                if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                }
+            });
+
+            chatInput.addEventListener('input', () => {
+                autoResize();
+                updateSendButtonState(); // ✅ 입력값 변경 시 버튼 상태 갱신
+            });
+
+            autoResize();
+            updateSendButtonState(); // ✅ 초기 로딩 시 버튼 상태 설정
+
+            document.querySelector('.chat-home')?.addEventListener('click', (e) => {
                 e.preventDefault();
-                handleSendMessage();
-            }
+                window.location.reload();
+            });
         });
+    </script>
 
-        chatInput.addEventListener('input', autoResize);
-        autoResize();
-
-        document.querySelector('.chat-home')?.addEventListener('click', (e) => {
-            e.preventDefault();
-            window.location.reload();
-        });
-    });
-</script>
 
 </body>
+
 </html>
