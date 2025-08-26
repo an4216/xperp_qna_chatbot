@@ -436,25 +436,49 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
         opacity: .7;
     }
 }
-
 .feedback-buttons {
-    margin-top: 8px;
     display: flex;
-    gap: 10px;
-    justify-content: flex-start; /* 왼쪽 정렬 (원하면 center로 바꿔도 됨) */
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
 }
 
-.feedback-buttons .btn-feedback {
-    background: #f1f3f5;
-    border: 1px solid #dee2e6;
+.feedback-reason-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.feedback-reason {
+    min-width: 180px;
+    max-width: 260px;
+    padding: 6px 8px;
     border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 14px;
-    cursor: pointer;
-    transition: background-color 0.2s, transform 0.2s;
+    border: 1px solid #ccc;
+    font-size: 13px;
+    font-family: Pretendard, sans-serif;
+    resize: none;
+    line-height: 1.4;
 }
 
-.feedback-buttons .btn-feedback:hover {
-    background: #e9ecef;
-    transform: translateY(-1px);
+.feedback-reason:focus {
+    border-color: #31333f;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(49,51,63,0.2);
 }
+
+.btn-send-reason {
+    padding: 4px 10px;
+    border: none;
+    border-radius: 6px;
+    background: #31333f;
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-send-reason:hover {
+    background: #1f2029;
+}
+
