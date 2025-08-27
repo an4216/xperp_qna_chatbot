@@ -86,7 +86,6 @@
                 </div>
             </div>
         </div> -->
-
   </div>
 
   <script>
@@ -264,7 +263,28 @@
         const wrapper = target.closest('.bot-message-container');
         const responseText = wrapper.querySelector('.bot-message')?.innerText || '';
 
+        const likeButton = box.querySelector('[aria-label="좋아요"]');
+        const dislikeButton = box.querySelector('[data-role="dislike"]');
+
         if (target.closest('.like-icon')) {
+          // 👉 wrapper와 form 영역 찾기
+          const form = box.querySelector('.feedback-form');
+          const textarea = box.querySelector('.feedback-textarea');
+          const selected = box.querySelector('.option-button.selected');
+
+          // ✅ 싫어요 폼 숨기기 + 초기화
+          if (form) form.style.display = 'none';
+          if (textarea) textarea.value = '';
+          if (selected) selected.classList.remove('selected');
+          updateSubmitState(box);
+
+          // 👍 버튼 상태 관리
+          box.querySelectorAll('.icon-button').forEach(btn => {
+            btn.classList.remove('status-selected');
+          });
+          target.closest('.icon-button').classList.add('status-selected');
+
+          // 👍 피드백 전송
           const payload = {
             message: lastUserMessage,
             response: responseText,
@@ -277,13 +297,17 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
             });
-            box.innerHTML = `<span style="font-size:13px;color:#666;">피드백 저장됨 ✅</span>`;
+            box.insertAdjacentHTML('beforeend', `<p style="font-size:13px;color:#666;">피드백 저장됨 ✅</p>`);
           } catch (err) {
             console.error("좋아요 전송 실패", err);
           }
         }
 
+
         if (target.closest('.dislike-icon')) {
+          dislikeButton.classList.add('status-selected');
+          likeButton.classList.remove('status-selected');
+
           const form = box.querySelector('.feedback-form');
           form.style.display = 'block';
         }
@@ -325,7 +349,23 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
             });
-            box.innerHTML = `<span style="font-size:13px;color:#666;">비추 사유 저장됨 ✅</span>`;
+
+            // 기존 feedback-buttons 유지 + feedback-result만 따로 추가
+            const form = box.querySelector('.feedback-form');
+            if (form) form.style.display = 'none';
+
+            const resultBox = document.createElement('div');
+            resultBox.className = 'feedback-result-box';
+            resultBox.innerHTML = `
+        <div class="feedback-selected">
+          <p id="feedbackSeletText">${reason}</p>
+        </div>
+        <div class="feedback-result">
+          <p class="feedback-thanks">소중한 의견 감사합니다.</p>
+          <button type="button" class="btn-close">닫기</button>
+        </div>
+      `;
+            box.appendChild(resultBox);
           } catch (err) {
             console.error("비추 전송 실패", err);
           }
@@ -339,6 +379,11 @@
           if (textarea) textarea.value = '';
           if (selected) selected.classList.remove('selected');
           updateSubmitState(box);
+        }
+
+        if (target.classList.contains('btn-close')) {
+          const resultBox = box.querySelector('.feedback-result-box');
+          if (resultBox) resultBox.remove();
         }
       });
 
