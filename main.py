@@ -6,10 +6,14 @@ from dotenv import load_dotenv
 import uvicorn
 from llm import get_ai_response
 import asyncio
-import json, os
+import json, os, requests   # ✅ requests 추가
+
 
 # FastAPI 앱 생성
 app = FastAPI()
+# 환경변수 로드
+load_dotenv()
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 # HTML 템플릿 설정
 templates = Jinja2Templates(directory="templates")
@@ -50,10 +54,57 @@ async def chat_test(message: str = Form(...)):
 # ✅ 사용자 피드백 저장 API
 @app.post("/feedback")
 async def feedback(data: dict = Body(...)):
+    import requests
+
+    # 1) 피드백 로그 파일 저장
     os.makedirs("logs", exist_ok=True)
     log_path = "logs/feedback.jsonl"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+    # 2) 👎 down 피드백이면 Slack 알림 전송
+    if data.get("feedback") == "down" and SLACK_WEBHOOK_URL:
+        message = {
+            "blocks": [
+                {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": "⚠️ Xperp 챗봇 Down Feedback 발생"}
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*🙋 질문:*\n>{data.get('message')}"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*💬 답변 (요약):*\n>{data.get('response')[:300]}..."
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":warning: *사유:*\n```{data.get('reason', '사유 미작성')}```"
+                    }
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {"type": "mrkdwn", "text": ":loudspeaker: <!channel> 모든 분 확인 바랍니다."}
+                    ]
+                }
+            ]
+        }
+        try:
+            requests.post(SLACK_WEBHOOK_URL, json=message)
+        except Exception as e:
+            print(f"Slack 전송 오류: {e}")
+
+
     return {"status": "ok"}
 
 
