@@ -161,46 +161,51 @@
         autoResize();
         lastUserMessage = message;
 
+        // ...생략...
+
         lockInput();
 
         try {
           const formData = new FormData();
           formData.append('message', message);
 
-          const response = await fetch('/chat', {
-            method: 'POST',
-            body: formData
-          });
-
-          if (!response.ok || !response.body) {
-            addMessage('bot', `오류 발생 (${response.status})`);
-            return;
-          }
-
+          // ✅ 1) 로딩 UI를 fetch 전에 먼저 붙인다
           const wrapper = document.createElement('div');
           const msgId = Date.now();
           wrapper.className = 'bot-message-container';
           wrapper.dataset.msgId = msgId;
 
           const botDiv = document.createElement('div');
-          botDiv.className = 'bot-message status-loading'; // ✅ 로딩 클래스 추가
-          console.log("여기1");
+          botDiv.className = 'bot-message status-loading';
+
           const loadingEl = document.createElement('span');
-          console.log("여기2");
           loadingEl.className = 'loading-dots';
-          console.log("여기3");
           loadingEl.innerHTML = `
-            <span class="loading-dot">ㅇㅇㅇㅇㅇㅇ</span>
-            <span class="loading-dot"></span>
-            <span class="loading-dot">ㄴ</span>
-            <span>sssssss확인</span>
-          `;
-          console.log("여기4");
+    <span class="loading-dot"></span>
+    <span class="loading-dot"></span>
+    <span class="loading-dot"></span>
+  `;
           botDiv.appendChild(loadingEl);
           wrapper.appendChild(botDiv);
           chatContent.appendChild(wrapper);
-          console.log(chatContent);
           scrollToBottom();
+
+          // ✅ 2) 페인트 기회 부여(선택)
+          await new Promise(requestAnimationFrame);
+
+          // ✅ 3) 이제 fetch 시작
+          const response = await fetch('/chat', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!response.ok || !response.body) {
+            // 로딩상태 제거 후 에러 출력
+            botDiv.classList.remove('status-loading');
+            if (loadingEl) loadingEl.remove();
+            botDiv.textContent = `오류 발생 (${response.status})`;
+            return;
+          }
 
           const reader = response.body.getReader();
           const decoder = new TextDecoder("utf-8");
@@ -209,57 +214,59 @@
           while (true) {
             const { done, value } = await reader.read();
             if (done) {
-              botDiv.classList.remove('status-loading'); // ✅ 로딩 클래스 제거
+              botDiv.classList.remove('status-loading');
               break;
             }
-
             if (loadingEl) loadingEl.remove();
             botMessage += decoder.decode(value, { stream: true });
             botDiv.innerHTML = botMessage.replace(/\n/g, '<br>');
             scrollToBottom();
           }
 
-          // ✅ 피드백 박스 추가 (이 부분은 그대로 유지)
+          // ✅ 피드백 박스 추가(기존 그대로)
           const feedbackBox = document.createElement('div');
           feedbackBox.className = 'feedback-box';
           feedbackBox.innerHTML = `
-            <div class="feedback-buttons">
-                <button class="icon-button" aria-label="좋아요">
-                    <span class="like-icon"></span>
-                </button>
-                <button class="icon-button" data-role="dislike" aria-label="개선이 필요해요">
-                    <span class="dislike-icon"></span>
-                </button>
-            </div>
-            <div class="feedback-form" style="display: none;">
-                <p class="feedback-title">어떤 점이 불만족스러우셨나요?</p>
-                <div class="feedback-options">
-                    <button class="option-button">내용이 부정확해요.</button>
-                    <button class="option-button">중복되거나 반복적인 설명이에요.</button>
-                    <button class="option-button">답변이 너무 짧거나 성의없어 보여요.</button>
-                    <button class="option-button">답변이 너무 길거나 불필요하게 장황해요.</button>
-                    <button class="option-button">업무에 적용하기 어려운 답변이에요.</button>
-                    <button class="option-button">기타(의견을 작성해주세요)</button>
-                </div>
-                <div class="feedback-comment-box">
-                    <!-- textarea는 기본적으로 숨김 -->
-                    <textarea class="feedback-textarea" placeholder="의견을 입력해 주세요" style="display:none;"></textarea>
-                    <div class="feedback-actions">
-                      <button class="btn-cancel">취소</button>
-                      <button class="btn-submit" disabled>제출</button>
-                    </div>
-                  </div>
-            </div>
-          `;
+    <div class="feedback-buttons">
+      <button class="icon-button" aria-label="좋아요">
+        <span class="like-icon"></span>
+      </button>
+      <button class="icon-button" data-role="dislike" aria-label="개선이 필요해요">
+        <span class="dislike-icon"></span>
+      </button>
+    </div>
+    <div class="feedback-form" style="display: none;">
+      <p class="feedback-title">어떤 점이 불만족스러우셨나요?</p>
+      <div class="feedback-options">
+        <button class="option-button">내용이 부정확해요.</button>
+        <button class="option-button">중복되거나 반복적인 설명이에요.</button>
+        <button class="option-button">답변이 너무 짧거나 성의없어 보여요.</button>
+        <button class="option-button">답변이 너무 길거나 불필요하게 장황해요.</button>
+        <button class="option-button">업무에 적용하기 어려운 답변이에요.</button>
+        <button class="option-button">기타(의견을 작성해주세요)</button>
+      </div>
+      <div class="feedback-comment-box">
+        <textarea class="feedback-textarea" placeholder="의견을 입력해 주세요" style="display:none;"></textarea>
+        <div class="feedback-actions">
+          <button class="btn-cancel">취소</button>
+          <button class="btn-submit" disabled>제출</button>
+        </div>
+      </div>
+    </div>
+  `;
           wrapper.appendChild(feedbackBox);
           scrollToBottom();
 
         } catch (err) {
           console.error(err);
+          // 로딩상태가 떠있다면 정리
+          const lastBot = chatContent.querySelector('.bot-message.status-loading');
+          if (lastBot) lastBot.classList.remove('status-loading');
           addMessage('bot', '오류 발생. 네트워크 확인 후 다시 시도해주세요.');
         } finally {
           unlockInput();
         }
+
       };
 
       // 피드백 이벤트
