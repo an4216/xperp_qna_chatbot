@@ -184,7 +184,7 @@
 
           const botDiv = document.createElement('div');
           botDiv.className = 'bot-message status-loading'; // ✅ 로딩 클래스 추가
-
+          console.log("여기1");
           const loadingEl = document.createElement('span');
           loadingEl.className = 'loading-dots';
           loadingEl.innerHTML = `
@@ -195,6 +195,7 @@
           botDiv.appendChild(loadingEl);
           wrapper.appendChild(botDiv);
           chatContent.appendChild(wrapper);
+          console.log(chatContent);
           scrollToBottom();
 
           const reader = response.body.getReader();
