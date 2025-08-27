@@ -1,42 +1,41 @@
+# 📘 Xperp 문의 챗봇 (FastAPI + LangChain 기반)
 
-## 📘 Xperp 문의 챗봇 (Streamlit + LangChain 기반)
+## ✅ Overview
 
-### ✅ Overview
-
-이 프로젝트는 **LangChain + Streamlit**을 기반으로 동작하는 **RAG(Retrieval Augmented Generation)** 챗봇입니다.
+이 프로젝트는 **LangChain + FastAPI**를 기반으로 동작하는 **RAG(Retrieval Augmented Generation)** 챗봇입니다.
 사용자 질문에 대해 Xperp 프로그램의 **사용법 및 오류 해결 방법**을 제공하며,
 대화 이력과 사전 예시 템플릿을 활용해 보다 정확한 답변을 생성합니다.
 
 ---
 
-### ✅ Features
+## ✅ Features
 
 * 🧠 **LangChain 통합**: 벡터 DB 및 LLM 기반 검색/생성 기능
-* 💬 **Streamlit 웹 인터페이스**: 직관적인 웹 기반 챗봇 UI
+* 🌐 **FastAPI + HTML UI**: 웹 브라우저 기반의 간단한 채팅 인터페이스 제공
 * 🔍 **RAG 방식 적용**: 문서 기반 답변 생성
-* 🗂️ **Xperp 매뉴얼 기반 지식탐색**: `docs/sample.txt`에 저장된 매뉴얼 내용을 바탕으로 답변
-* 🧾 **챗 이력 기반 문맥 이해**
+* 🗂️ **Xperp 매뉴얼 기반 지식탐색**: `docs/`에 저장된 매뉴얼/샘플 문서를 바탕으로 답변
+* 💬 **대화 이력 기반 문맥 이해**
 * 📄 **Few-shot 예시 템플릿**으로 정제된 답변 제공
 
 ---
 
-### ✅ Installation
+## ✅ Installation
 
-#### 1. 프로젝트 클론
+### 1. 프로젝트 클론
 
 ```bash
 git clone https://github.com/your-org/xperp-chatbot.git
 cd xperp-chatbot
 ```
 
-#### 2. 가상환경 생성 및 활성화 (Windows 기준)
+### 2. 가상환경 생성 및 활성화 (Windows 기준)
 
 ```bash
 python -m venv venv
-venv\\Scripts\\activate
+venv\Scripts\activate
 ```
 
-#### 3. 패키지 설치
+### 3. 패키지 설치
 
 ```bash
 pip install -r requirements.txt
@@ -44,61 +43,80 @@ pip install -r requirements.txt
 
 ---
 
-### ✅ Usage
+## ✅ Usage
 
-#### ▶ 실행 명령어 (Windows 기준)
+### ▶ 실행 방법
+
+#### 방법 1: `python main.py` 실행
 
 ```bash
-streamlit run chat.py
+python main.py
 ```
 
-브라우저가 자동으로 열리지 않으면 안내된 `http://localhost:8501` 주소로 직접 접속하세요.
+* `main.py` 내부에서 `uvicorn.run()`이 실행되므로 바로 서버가 올라갑니다.
+* 기본 접속 주소: [http://localhost:8501](http://localhost:8501)
+
+#### 방법 2: `uvicorn` 명령어 실행
+
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8501
+```
 
 ---
 
-### ✅ Project Structure
+## ✅ Project Structure
 
-| 파일명                 | 설명                          |
-| ------------------- | --------------------------- |
-| `chat.py`           | Streamlit UI 구성 및 사용자 인터페이스 |
-| `llm.py`            | LLM, RAG chain, 벡터 검색 설정    |
-| `config.py`         | Few-shot 예시(입력/출력 템플릿) 정의   |
-| `docs/sample.txt`   | Xperp 관련 문서 (검색용 문서)        |
-| `assets/m_logo.png` | 상단 헤더 로고 이미지                |
+| 파일명                   | 설명                             |
+| --------------------- | ------------------------------ |
+| `main.py`             | FastAPI 서버 및 API 엔드포인트 정의      |
+| `llm.py`              | LLM, RAG 체인, 벡터 검색, 캐싱 로직 포함   |
+| `config.py`           | Few-shot 예시(입력/출력 템플릿) 정의      |
+| `templates/chat.html` | 챗봇 웹 UI (HTML/JS 기반)           |
+| `static/css/chat.css` | 챗봇 스타일 CSS                     |
+| `static/images/`      | 로고/아이콘 이미지                     |
+| `docs/manual/`        | 매뉴얼 문서 (PDF, txt 등, 벡터 변환 대상)  |
+| `docs/qna/`           | QnA 문서 (질문/답변/키워드 기반)          |
+| `vectorstore/`        | 문서 임베딩 후 저장되는 로컬 벡터 DB (FAISS) |
 
 ---
 
-### ✅ How It Works
+## ✅ How It Works
 
-1. **문서 로딩**
-   → `docs/sample.txt`를 FAISS 벡터로 변환
+1. **문서 로딩 및 임베딩**
+   → `docs/manual/`, `docs/qna/` 폴더의 문서를 FAISS 벡터로 변환
 
 2. **사용자 질문 입력**
    → 질문을 LangChain이 벡터 검색
 
 3. **관련 문서 검색 → LLM으로 응답 생성**
-   → Few-shot 예시 포함된 prompt 템플릿 사용
+   → Few-shot 예시가 포함된 prompt 템플릿을 기반으로 답변 구성
 
-4. **Streamlit에서 채팅 형태로 응답 제공**
+4. **웹 UI에서 채팅 형태로 응답 제공**
+   → HTML + JS Fetch API로 `/chat` 호출, 응답을 채팅창에 출력
 
 ---
 
-### ✅ 예시 질문
+## ✅ Example Questions
 
 * Xperp 로그인 오류 해결 방법은?
 * 거래처 등록은 어디서 하나요?
 * 세금계산서 출력은 어떤 메뉴에 있나요?
+* 전출처리 방법을 알려주세요.
 
 ---
 
-### ✅ Contributing
+## ✅ Contributing
 
 * PR 및 이슈 환영합니다!
 * 개선사항이나 버그는 언제든 공유해주세요 🙌
 
 ---
 
-### ✅ Acknowledgments
+## ✅ Acknowledgments
 
 * [LangChain](https://github.com/langchain-ai/langchain)
-* [Streamlit](https://github.com/streamlit/streamlit)
+* [FastAPI](https://github.com/tiangolo/fastapi)
+* [FAISS](https://github.com/facebookresearch/faiss)
+
+---
+

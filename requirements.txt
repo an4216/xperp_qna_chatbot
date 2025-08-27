@@ -25,7 +25,7 @@ jsonschema==4.22.0
 jsonschema-specifications==2023.12.1
 langchain==0.2.3
 langchain-community==0.2.4
-langchain-core==0.2.29
+langchain-core>=0.2.20,<0.3.0
 langchain-openai==0.1.8
 langchain-pinecone==0.1.1
 langchain-text-splitters==0.2.1
@@ -79,6 +79,16 @@ urllib3==2.2.1
 yarl==1.9.4
 faiss-cpu==1.7.4
 pypdf==5.8.0
+
+# HuggingFace 임베딩 관련 (langchain-huggingface 대신 사용)
+sentence-transformers==3.0.1
+transformers==4.43.2
+accelerate==0.33.0
+huggingface-hub>=0.23.4
+safetensors>=0.4.3
+tokenizers>=0.15.2
+sentencepiece>=0.2.0
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
+mlflow==2.15.1

@@ -8,7 +8,7 @@ div[data-testid="stBottom"] {
 }
 
 div[data-testid="stBottomBlockContainer"] {
-  padding: 0 !important;
+    padding: 0 !important;
 }
 /* block-container 스타일 변경 예시 */
 .st-emotion-cache-7tauuy.ea3mdgi5 {
