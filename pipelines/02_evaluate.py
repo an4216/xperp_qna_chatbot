@@ -11,7 +11,7 @@ from llm import get_ai_response, get_embeddings, get_llm
 # MLflow 추가
 import mlflow
 
-LOG_LOW_SCORE = "logs/low_score.jsonl"
+LOG_LOW_SCORE = "logs/low_score.json"
 LOW_SCORE_THRESHOLD = 70   # 점수 기준
 
 # ================================
