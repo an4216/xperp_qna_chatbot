@@ -186,13 +186,16 @@
           botDiv.className = 'bot-message status-loading'; // ✅ 로딩 클래스 추가
           console.log("여기1");
           const loadingEl = document.createElement('span');
+          console.log("여기2");
           loadingEl.className = 'loading-dots';
+          console.log("여기3");
           loadingEl.innerHTML = `
             <span class="loading-dot">ㅇㅇㅇㅇㅇㅇ</span>
             <span class="loading-dot"></span>
             <span class="loading-dot">ㄴ</span>
             <span>sssssss확인</span>
           `;
+          console.log("여기4");
           botDiv.appendChild(loadingEl);
           wrapper.appendChild(botDiv);
           chatContent.appendChild(wrapper);
