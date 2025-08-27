@@ -67,7 +67,7 @@
                     <span class="dislike-icon"></span>
                 </button>
             </div>
-        
+
             <div class="feedback-form">
                 <p class="feedback-title">어떤 점이 불만족스러우셨나요?</p>
                 <div class="feedback-options">
@@ -267,23 +267,27 @@
         const dislikeButton = box.querySelector('[data-role="dislike"]');
 
         if (target.closest('.like-icon')) {
+          // 버튼이 이미 선택된 상태이면 아무 것도 하지 않음
+          if (likeButton.classList.contains('status-selected')) return;
+
           // 👉 wrapper와 form 영역 찾기
           const form = box.querySelector('.feedback-form');
           const textarea = box.querySelector('.feedback-textarea');
           const selected = box.querySelector('.option-button.selected');
 
-          // ✅ 싫어요 폼 숨기기 + 초기화
+          // ❌ 수정 전 상태 초기화 → 제거하지 않음 (좋아요는 수정 불가)
           if (form) form.style.display = 'none';
           if (textarea) textarea.value = '';
           if (selected) selected.classList.remove('selected');
           updateSubmitState(box);
 
-          // 👍 버튼 상태 관리
+          // 👍 버튼 상태 설정
           box.querySelectorAll('.icon-button').forEach(btn => {
             btn.classList.remove('status-selected');
+            btn.disabled = true; // ✅ 버튼 비활성화
           });
-          target.closest('.icon-button').classList.add('status-selected');
-
+          likeButton.classList.add('status-selected');
+          if (dislikeButton) dislikeButton.remove();
           // 👍 피드백 전송
           const payload = {
             message: lastUserMessage,
@@ -297,11 +301,12 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
             });
-            box.insertAdjacentHTML('beforeend', `<p style="font-size:13px;color:#666;">피드백 저장됨 ✅</p>`);
+            // ✅ 메시지 출력 제거됨
           } catch (err) {
             console.error("좋아요 전송 실패", err);
           }
         }
+
 
 
         if (target.closest('.dislike-icon')) {
@@ -350,26 +355,44 @@
               body: JSON.stringify(payload)
             });
 
-            // 기존 feedback-buttons 유지 + feedback-result만 따로 추가
+            // ✅ 수정 방지 처리 추가
             const form = box.querySelector('.feedback-form');
             if (form) form.style.display = 'none';
 
+            const dislikeButton = box.querySelector('[data-role="dislike"]');
+            const likeButton = box.querySelector('[aria-label="좋아요"]');
+            const optionButtons = box.querySelectorAll('.option-button');
+            const feedbackTextarea = box.querySelector('.feedback-textarea');
+            const cancelBtn = box.querySelector('.btn-cancel');
+            const submitBtn = box.querySelector('.btn-submit');
+
+            // 버튼 클릭 방지 및 폼 입력 비활성화
+            if (dislikeButton) dislikeButton.disabled = true;
+            if (likeButton) likeButton.remove();
+            if (likeButton) likeButton.disabled = true;
+            optionButtons.forEach(btn => btn.disabled = true);
+            if (feedbackTextarea) feedbackTextarea.disabled = true;
+            if (cancelBtn) cancelBtn.disabled = true;
+            if (submitBtn) submitBtn.disabled = true;
+
+            // ✅ 결과 메시지 출력 (기존대로 유지)
             const resultBox = document.createElement('div');
             resultBox.className = 'feedback-result-box';
             resultBox.innerHTML = `
-        <div class="feedback-selected">
-          <p id="feedbackSeletText">${reason}</p>
-        </div>
-        <div class="feedback-result">
-          <p class="feedback-thanks">소중한 의견 감사합니다.</p>
-          <button type="button" class="btn-close">닫기</button>
-        </div>
-      `;
+      <div class="feedback-selected">
+        <p id="feedbackSeletText">${reason}</p>
+      </div>
+      <div class="feedback-result">
+        <p class="feedback-thanks">소중한 의견 감사합니다.</p>
+        <button type="button" class="btn-close">닫기</button>
+      </div>
+    `;
             box.appendChild(resultBox);
           } catch (err) {
             console.error("비추 전송 실패", err);
           }
         }
+
 
         if (target.classList.contains('btn-cancel')) {
           const form = box.querySelector('.feedback-form');
