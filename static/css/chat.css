@@ -236,12 +236,14 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
 .chat-input-area {
     padding: 20px 20px 60px;
     border-top: 1px solid oklch(0.967 0.003 264.542);
+    user-select: none;
 }
 
 .chat-input-wrapper {
     position: relative;
     max-width: 768px;
     margin: 0 auto;
+    user-select: none;
 }
 
 .chat-input {
@@ -270,16 +272,12 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
     border-color: oklab(0.708 0 0 / 0.5);
 }
 
-.chat-input:focus-visible + .send-button {
-    background-color: #31333f;
-}
-
 .send-button {
     position: absolute;
     top: calc(50% - 1px);
     right: 16px;
     transform: translateY(-50%);
-    background-color: rgb(209, 213, 219);
+    background-color: #31333f;
     border: none;
     border-radius: 50%;
     width: 34px;
@@ -289,12 +287,12 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button {
     align-items: center;
     justify-content: center;
     transition: background-color 0.3s, color 0.3s;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20class%3D%22lucide%20lucide-arrow-up%20w-5%20h-5%22%20aria-hidden%3D%22true%22%20style%3D%22color%3A%20rgb(255%2C%20255%2C%20255)%3B%22%3E%3Cpath%20d%3D%22m5%2012%207-7%207%207%22%3E%3C/path%3E%3Cpath%20d%3D%22M12%2019V5%22%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: 14px 14px;
+    background-position: center;
 }
-
-.send-button svg {
-    width: 14px;
-    object-fit: 1/1
-}
+.send-button:disabled {background-color: rgb(209, 213, 219);} 
 
 .hidden {
     display: none !important;
