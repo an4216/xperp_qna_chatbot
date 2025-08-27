@@ -44,7 +44,7 @@ def load_feedback():
         for line in f:
             try:
                 fb = json.loads(line.strip())
-                if fb.get("feedback") == "up" and fb.get("message") and fb.get("response"):
+                if fb.get("feedback") == "down" and fb.get("message") and fb.get("response"):
                     feedback_data.append({
                         "question": fb["message"],
                         "expected": fb["response"]
