@@ -12,7 +12,7 @@ from llm import get_ai_response, get_embeddings, get_llm
 import mlflow
 
 LOG_LOW_SCORE = "logs/low_score.json"
-LOW_SCORE_THRESHOLD = 70   # 점수 기준
+LOW_SCORE_THRESHOLD = 70   # LLM Judge 점수 기준
 
 # ================================
 # Cosine Similarity 기반 평가
@@ -94,16 +94,15 @@ def run_evaluation(eval_data):
         }
         results.append(result_item)
 
-        # ✅ 점수 낮은 QA 수집
-        if sim_score < LOW_SCORE_THRESHOLD or judge_score < LOW_SCORE_THRESHOLD:
+        # ✅ LLM Judge 기준 70점 미만만 저장
+        if judge_score < LOW_SCORE_THRESHOLD:
             low_score_logs.append(result_item)
 
-    # 점수 낮은 QA 로그 저장
+    # 점수 낮은 QA 로그 저장 (JSON 배열 형식, 덮어쓰기)
     if low_score_logs:
         os.makedirs(Path(LOG_LOW_SCORE).parent, exist_ok=True)
-        with open(LOG_LOW_SCORE, "a", encoding="utf-8") as f:
-            for log in low_score_logs:
-                f.write(json.dumps(log, ensure_ascii=False) + "\n")
+        with open(LOG_LOW_SCORE, "w", encoding="utf-8") as f:
+            json.dump(low_score_logs, f, ensure_ascii=False, indent=2)
         print(f"⚠️ 낮은 점수 QA {len(low_score_logs)}개 저장됨 → {LOG_LOW_SCORE}")
 
     return results
