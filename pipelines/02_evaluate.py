@@ -4,13 +4,14 @@ import time
 import numpy as np
 from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
+from datetime import datetime
 
 from llm import get_ai_response, get_embeddings, get_llm
 
 # MLflow 추가
 import mlflow
 
-LOG_LOW_SCORE = "logs/low_score.json"
+LOG_LOW_SCORE_DIR = "logs/low_scores"
 LOG_FEEDBACK_DOWN = "logs/feedback_down.json"
 LOW_SCORE_THRESHOLD = 70   # LLM Judge 점수 기준
 
@@ -120,14 +121,18 @@ def run_evaluation(eval_data):
         if judge_score < LOW_SCORE_THRESHOLD:
             low_score_logs.append(result_item)
 
-    # 점수 낮은 QA 로그 저장
+    # 점수 낮은 QA 로그 저장 (날짜별로 append)
     if low_score_logs:
-        os.makedirs(Path(LOG_LOW_SCORE).parent, exist_ok=True)
-        with open(LOG_LOW_SCORE, "w", encoding="utf-8") as f:
+        os.makedirs(LOG_LOW_SCORE_DIR, exist_ok=True)
+        today = datetime.now().strftime("%Y%m%d_%H%M%S")
+        low_file = os.path.join(LOG_LOW_SCORE_DIR, f"low_score_{today}.json")
+        with open(low_file, "w", encoding="utf-8") as f:
             json.dump(low_score_logs, f, ensure_ascii=False, indent=2)
-        print(f"⚠️ 낮은 점수 QA {len(low_score_logs)}개 저장됨 → {LOG_LOW_SCORE}")
+        print(f"⚠️ 낮은 점수 QA {len(low_score_logs)}개 저장됨 → {low_file}")
 
-    return results
+        return results, low_file
+
+    return results, None
 
 # ================================
 # Main
@@ -144,7 +149,7 @@ if __name__ == "__main__":
     print(f"🚀 총 {len(eval_data)}개 질문에 대해 평가 시작...")
 
     # 평가 실행
-    results = run_evaluation(eval_data)
+    results, low_file = run_evaluation(eval_data)
 
     # 결과 저장
     os.makedirs("outputs", exist_ok=True)
@@ -167,8 +172,10 @@ if __name__ == "__main__":
         mlflow.log_metric("avg_judge", avg_judge)
 
         mlflow.log_artifact(out_file)
-        if os.path.exists(LOG_LOW_SCORE):
-            mlflow.log_artifact(LOG_LOW_SCORE)
+
+        # ✅ 이번 평가에서 나온 low_score 파일만 MLflow에 기록
+        if low_file and os.path.exists(low_file):
+            mlflow.log_artifact(low_file)
 
         # ✅ down feedback도 MLflow에 기록 (comment 포함)
         down_feedback = load_down_feedback()
