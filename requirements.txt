@@ -46,7 +46,8 @@ pandas==2.2.2
 pillow==10.3.0
 pinecone-client==3.2.2
 protobuf==4.25.3
-pyarrow==16.1.0
+# pyarrow==16.1.0   ← ❌ 충돌
+pyarrow==15.0.2     # ✅ streamlit & mlflow 둘 다 호환
 pydantic==2.7.4
 pydantic_core==2.18.4
 pydeck==0.9.1
@@ -88,6 +89,7 @@ huggingface-hub>=0.23.4
 safetensors>=0.4.3
 tokenizers>=0.15.2
 sentencepiece>=0.2.0
+
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
