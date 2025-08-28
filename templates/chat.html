@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/png" sizes="48x48" href="/static/images/xperp-favicon.png">
   <link rel="stylesheet" href="/static/css/chat.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
   <title>XpERP Chatbot</title>
 </head>
 
@@ -20,9 +22,6 @@
           </a>
           <span class="v_line"></span>
           <img data-logo="xperp" src="/static/images/xperp-logo.svg">
-        </div>
-        <div class="homepage-link">
-          <a href="https://www.aegisep.com" target="_blank">공식 홈페이지 바로가기</a>
         </div>
       </nav>
     </header>
@@ -57,35 +56,6 @@
         </div>
       </main>
     </div>
-
-    <!-- <div class="feedback-box">
-            <div class="feedback-buttons">
-                <button class="icon-button" aria-label="좋아요">
-                    <span class="like-icon"></span>
-                </button>
-                <button class="icon-button" aria-label="개선이 필요해요">
-                    <span class="dislike-icon"></span>
-                </button>
-            </div>
-
-            <div class="feedback-form">
-                <p class="feedback-title">어떤 점이 불만족스러우셨나요?</p>
-                <div class="feedback-options">
-                    <button class="option-button">내용이 부정확해요.</button>
-                    <button class="option-button">중복되거나 반복적인 설명이에요.</button>
-                    <button class="option-button">답변이 너무 짧거나 성의없어 보여요.</button>
-                    <button class="option-button">답변이 너무 길거나 불필요하게 장황해요.</button>
-                    <button class="option-button">업무에 적용하기 어려운 답변이에요.</button>
-                </div>
-                <div class="feedback-comment-box">
-                    <textarea class="feedback-textarea" placeholder="의견을 입력해 주세요"></textarea>
-                    <div class="feedback-actions">
-                        <button class="btn-cancel">취소</button>
-                        <button class="btn-submit" disabled>제출</button>
-                    </div>
-                </div>
-            </div>
-        </div> -->
   </div>
 
   <script>
@@ -219,9 +189,12 @@
             }
             if (loadingEl) loadingEl.remove();
             botMessage += decoder.decode(value, { stream: true });
-            botDiv.innerHTML = botMessage.replace(/\n/g, '<br>');
+
+            // 📌 마크다운 파싱해서 표시
+            botDiv.innerHTML = marked.parse(botMessage);
             scrollToBottom();
           }
+
 
           // ✅ 피드백 박스 추가(기존 그대로)
           const feedbackBox = document.createElement('div');

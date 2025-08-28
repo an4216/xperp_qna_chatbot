@@ -1,4 +1,3 @@
-# pipelines/02_evaluate.py
 import os
 import json
 import time
@@ -12,6 +11,7 @@ from llm import get_ai_response, get_embeddings, get_llm
 import mlflow
 
 LOG_LOW_SCORE = "logs/low_score.json"
+LOG_FEEDBACK_DOWN = "logs/feedback_down.json"
 LOW_SCORE_THRESHOLD = 70   # LLM Judge 점수 기준
 
 # ================================
@@ -27,7 +27,6 @@ def similarity_score(expected: str, actual: str) -> float:
     vec2 = np.array(embed_text(actual)).reshape(1, -1)
     score = cosine_similarity(vec1, vec2)[0][0]
     return float(score * 100)
-
 
 # ================================
 # LLM Judge 기반 평가
@@ -57,6 +56,29 @@ def llm_judge_score(expected: str, actual: str) -> float:
     except:
         return 0
 
+# ================================
+# Feedback 로드 (down만 추출)
+# ================================
+def load_down_feedback(feedback_file="logs/feedback.jsonl"):
+    down_list = []
+    if not os.path.exists(feedback_file):
+        return down_list
+
+    with open(feedback_file, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                fb = json.loads(line.strip())
+                if fb.get("feedback") == "down":
+                    down_list.append({
+                        "message": fb.get("message", ""),
+                        "response": fb.get("response", ""),
+                        "reason": fb.get("reason", ""),
+                        "comment": fb.get("comment", ""),
+                        "timestamp": fb.get("timestamp", "")
+                    })
+            except:
+                continue
+    return down_list
 
 # ================================
 # 평가 실행
@@ -98,7 +120,7 @@ def run_evaluation(eval_data):
         if judge_score < LOW_SCORE_THRESHOLD:
             low_score_logs.append(result_item)
 
-    # 점수 낮은 QA 로그 저장 (JSON 배열 형식, 덮어쓰기)
+    # 점수 낮은 QA 로그 저장
     if low_score_logs:
         os.makedirs(Path(LOG_LOW_SCORE).parent, exist_ok=True)
         with open(LOG_LOW_SCORE, "w", encoding="utf-8") as f:
@@ -106,29 +128,6 @@ def run_evaluation(eval_data):
         print(f"⚠️ 낮은 점수 QA {len(low_score_logs)}개 저장됨 → {LOG_LOW_SCORE}")
 
     return results
-
-
-# ================================
-# Feedback 로드
-# ================================
-def load_feedback(feedback_file="logs/feedback.jsonl"):
-    feedback_data = []
-    if not os.path.exists(feedback_file):
-        return feedback_data
-
-    with open(feedback_file, "r", encoding="utf-8") as f:
-        for line in f:
-            try:
-                fb = json.loads(line.strip())
-                if fb.get("feedback") == "up" and fb.get("message") and fb.get("response"):
-                    feedback_data.append({
-                        "question": fb["message"],
-                        "expected": fb["response"]
-                    })
-            except:
-                continue
-    return feedback_data
-
 
 # ================================
 # Main
@@ -139,29 +138,22 @@ if __name__ == "__main__":
         print(f"❌ 평가셋 파일 없음: {eval_file}")
         exit(1)
 
-    # 1) 기존 평가셋 로드
     with open(eval_file, "r", encoding="utf-8") as f:
         eval_data = json.load(f)
 
-    # 2) feedback 반영
-    feedback_data = load_feedback()
-    if feedback_data:
-        print(f"👍 피드백 기반 QA {len(feedback_data)}개 추가됨")
-        eval_data.extend(feedback_data)
-
     print(f"🚀 총 {len(eval_data)}개 질문에 대해 평가 시작...")
 
-    # 3) 평가 실행
+    # 평가 실행
     results = run_evaluation(eval_data)
 
-    # 4) 결과 저장
+    # 결과 저장
     os.makedirs("outputs", exist_ok=True)
     out_file = "outputs/eval_results.json"
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     print(f"✅ 평가 완료! 결과 저장됨: {out_file}")
 
-    # 5) MLflow 로깅
+    # MLflow 로깅
     avg_similarity = sum(r["similarity_score"] for r in results) / len(results)
     avg_judge = sum(r["llm_judge_score"] for r in results) / len(results)
 
@@ -174,11 +166,16 @@ if __name__ == "__main__":
         mlflow.log_metric("avg_similarity", avg_similarity)
         mlflow.log_metric("avg_judge", avg_judge)
 
-        # 결과 파일 아티팩트 저장
         mlflow.log_artifact(out_file)
-
-        # ✅ 낮은 점수 QA 로그도 MLflow에 기록
         if os.path.exists(LOG_LOW_SCORE):
             mlflow.log_artifact(LOG_LOW_SCORE)
+
+        # ✅ down feedback도 MLflow에 기록 (comment 포함)
+        down_feedback = load_down_feedback()
+        if down_feedback:
+            with open(LOG_FEEDBACK_DOWN, "w", encoding="utf-8") as f:
+                json.dump(down_feedback, f, ensure_ascii=False, indent=2)
+            mlflow.log_artifact(LOG_FEEDBACK_DOWN)
+            print(f"⚠️ down feedback {len(down_feedback)}개 저장됨 → {LOG_FEEDBACK_DOWN}")
 
     print("📊 MLflow에 평가 결과 기록 완료!")

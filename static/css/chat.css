@@ -142,3 +142,25 @@ html, body, p, div, a, ul, li, label, input, h3, h2, h1, button { padding: 0; ma
   font-size: 14px; padding: 7px 14px; border: 1px solid #d1d5db; /* gray-300 */
   border-radius: 6px; cursor: pointer; transition: background-color 0.2s ease; }
 .btn-close:hover { background-color: #f3f4f6; }
+/* 섹션 제목 */
+.bot-message h3,
+.bot-message p strong {
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+  display: block;
+  margin: 1.2em 0 0.5em !important;
+  border-left: 4px solid #4a90e2;
+  padding-left: 8px;
+  color: #2c3e50 !important;
+  line-height: 1.6 !important;
+}
+
+/* 본문 텍스트 */
+.bot-message p,
+.bot-message li {
+  font-size: 15px !important;
+  font-weight: 400 !important;
+  line-height: 1.7 !important;
+  color: #333 !important;
+  margin: 0.6em 0 !important;
+}
