@@ -110,4 +110,4 @@ async def feedback(data: dict = Body(...)):
 
 # 서버 실행 (개발용)
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5050)
+    uvicorn.run(app, host="0.0.0.0", port=8501)
