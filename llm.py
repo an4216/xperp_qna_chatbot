@@ -20,6 +20,7 @@ from langchain_openai import ChatOpenAI
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 
 from pathlib import Path
+from dotenv import load_dotenv
 
 from config import answer_examples
 import os
@@ -27,19 +28,17 @@ import time
 import re
 import json
 
-
 # =========================================
-# 환경설정 (RunPod vLLM OpenAI 호환)
+# 환경설정 (.env 로드)
 # =========================================
-# 반드시 /v1 포함
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "https://zc2liu1ru5cjgm-8000.proxy.runpod.net/v1")
-# /v1/models 의 data[].id 값과 정확히 일치해야 함
-MODEL_LLM     = os.getenv("MODEL_LLM", "unsloth/gemma-3-27b-it")
-# 키 검증을 안 해도 ChatOpenAI에는 문자열이 필요 → 더미키 사용
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "not-needed")
+load_dotenv()
 
-TOP_K       = int(os.getenv("TOP_K", "4"))
-VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")  # .env 관리
+MODEL_LLM     = os.getenv("MODEL_LLM")      # .env 관리
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "not-needed")  # .env 관리
+
+TOP_K       = int(os.getenv("TOP_K", "4"))              # 기본값 유지 가능
+VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")    # 기본값 유지 가능
 
 # 세션별 대화 히스토리 저장소
 store = {}
