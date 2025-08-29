@@ -59,7 +59,7 @@ def _load_fingerprint():
     if META_PATH.exists():
         try:
             meta = json.loads(META_PATH.read_text(encoding="utf-8"))
-            return meta.get("fingerprint")
+            return meta.get("docs_fingerprint")
         except Exception:
             return None
     return None
