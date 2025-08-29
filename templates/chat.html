@@ -347,8 +347,15 @@
         if (target.classList.contains('btn-submit')) {
           const selected = box.querySelector('.option-button.selected');
           const textarea = box.querySelector('.feedback-textarea');
+          const nameInput = box.querySelector('.feedback-input'); // ✅ 이름 input
           const reason = selected ? selected.innerText : '';
           const comment = textarea.value.trim();
+          const name = nameInput ? nameInput.value.trim() : "";
+
+          if (!name) {
+            alert("이름을 입력해주세요.");  // ✅ 이름 필수 체크
+            return;
+          }
 
           if (!reason && comment.length < 10) {
             alert("의견을 최소 10자 이상 입력하거나 사유를 선택해주세요.");
@@ -360,7 +367,7 @@
           if (reason.includes('기타')) {
             let shortComment = comment;
             if (shortComment.length > 10) {
-              shortComment = shortComment.substring(0, 20) + "..."; // ✅ 10자 초과시 잘라내기
+              shortComment = shortComment.substring(0, 20) + "...";
             }
             displayReason = `기타 (${shortComment})`;
           }
@@ -371,6 +378,7 @@
             feedback: "down",
             reason,
             comment,
+            name,   // ✅ 이름 기록
             timestamp: new Date().toISOString()
           };
 
@@ -391,6 +399,7 @@
             const feedbackTextarea = box.querySelector('.feedback-textarea');
             const cancelBtn = box.querySelector('.btn-cancel');
             const submitBtn = box.querySelector('.btn-submit');
+            const nameField = box.querySelector('.feedback-input');
 
             if (dislikeButton) dislikeButton.disabled = true;
             if (likeButton) likeButton.remove();
@@ -398,6 +407,7 @@
             if (feedbackTextarea) feedbackTextarea.disabled = true;
             if (cancelBtn) cancelBtn.disabled = true;
             if (submitBtn) submitBtn.disabled = true;
+            if (nameField) nameField.disabled = true;
 
             // ✅ "기타 (의견 ...)" 반영된 UI
             const resultBox = document.createElement('div');
@@ -407,7 +417,7 @@
         <p id="feedbackSeletText">${displayReason}</p>
       </div>
       <div class="feedback-result">
-        <p class="feedback-thanks">소중한 의견 감사합니다.</p>
+        <p class="feedback-thanks">소중한 의견 감사합니다. (${name}님)</p> <!-- ✅ 이름도 표시 -->
         <button type="button" class="btn-close">닫기</button>
       </div>
     `;
@@ -416,6 +426,7 @@
             console.error("비추 전송 실패", err);
           }
         }
+
 
         if (target.classList.contains('btn-cancel')) {
           const form = box.querySelector('.feedback-form');

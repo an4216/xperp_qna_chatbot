@@ -49,8 +49,6 @@ async def chat_test(message: str = Form(...)):
     for chunk in ai_response_generator:
         chunks.append(chunk)
     return PlainTextResponse("".join(chunks))
-
-
 # ✅ 사용자 피드백 저장 API
 @app.post("/feedback")
 async def feedback(data: dict = Body(...)):
@@ -64,6 +62,7 @@ async def feedback(data: dict = Body(...)):
 
     # 2) 👎 down 피드백이면 Slack 알림 전송
     if data.get("feedback") == "down" and SLACK_WEBHOOK_URL:
+        user_name = data.get("name", "익명")   # ✅ 이름 필드 (없으면 '익명')
         message = {
             "blocks": [
                 {
@@ -74,7 +73,7 @@ async def feedback(data: dict = Body(...)):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*🙋 질문:*\n>{data.get('message')}"
+                        "text": f"*🙋 질문자:* {user_name}\n*🙋 질문:*\n>{data.get('message')}"
                     }
                 },
                 {
@@ -103,7 +102,6 @@ async def feedback(data: dict = Body(...)):
             requests.post(SLACK_WEBHOOK_URL, json=message)
         except Exception as e:
             print(f"Slack 전송 오류: {e}")
-
 
     return {"status": "ok"}
 
