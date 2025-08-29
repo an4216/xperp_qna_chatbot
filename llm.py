@@ -114,85 +114,46 @@ def get_embeddings():
     return _cached_embeddings
 
 
-# 2. 문서 로드 + 벡터스토어 생성 + retriever 반환 (전역 캐싱)
+# 2. 문서 로드 + 벡터스토어 로드 (전역 캐싱)
 def get_retriever():
     global _cached_retriever, _cached_fingerprint
 
     start = time.perf_counter()
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
-    # 최신 fingerprint 불러오기
+    # ✅ index_meta.json fingerprint 로드
     current_fp = None
     if META_PATH.exists():
         try:
-            import json
-            current_fp = json.loads(META_PATH.read_text(encoding="utf-8")).get("fingerprint")
+            meta = json.loads(META_PATH.read_text(encoding="utf-8"))
+            current_fp = meta.get("docs_fingerprint")   # ✅ ingest.py와 키 통일
         except Exception:
             current_fp = None
 
-    # retriever가 없거나, fingerprint가 변경되었으면 새로 로드
+    # retriever가 없거나, fingerprint가 바뀐 경우만 새로 로드
     if _cached_retriever is None or _cached_fingerprint != current_fp:
-        print("[INFO] retriever reload triggered")
+        print(f"[INFO] retriever reload triggered (old={_cached_fingerprint}, new={current_fp})")
 
-        # 저장된 벡터스토어 있으면 로드
-        if os.path.exists(os.path.join(VECTOR_DIR, "index.faiss")):
-            vectorstore = FAISS.load_local(
-                VECTOR_DIR,
-                get_embeddings(),
-                allow_dangerous_deserialization=True
-            )
-            _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
-            _cached_fingerprint = current_fp
-            elapsed = (time.perf_counter() - start) * 1000
-            print(f"[TIMER] get_retriever: 기존 벡터스토어 로드 완료 ({elapsed:.2f} ms)")
-            return _cached_retriever
+        index_path = os.path.join(VECTOR_DIR, "index.faiss")
+        if not os.path.exists(index_path):
+            raise FileNotFoundError(f"❌ 벡터스토어 없음: {index_path}. 먼저 01_ingest.py 실행 필요")
 
-        # 벡터스토어가 없으면 새로 생성
-        embedding = get_embeddings()
-        documents = []
-        docs_dirs = ["docs/manual", "docs/qna"]
-
-        for docs_dir in docs_dirs:
-            if not os.path.isdir(docs_dir):
-                continue
-            for filename in os.listdir(docs_dir):
-                file_path = os.path.join(docs_dir, filename)
-                manual_name = os.path.splitext(filename)[0]
-
-                if filename.endswith(".txt"):
-                    loader = TextLoader(file_path, encoding='utf-8')
-                    docs = loader.load()
-                    for doc in docs:
-                        doc.metadata["source"] = manual_name
-                    documents.extend(docs)
-
-                elif filename.endswith(".pdf"):
-                    loader = PyPDFLoader(file_path)
-                    pages = loader.load()
-                    for i, page in enumerate(pages):
-                        page.metadata["source"] = manual_name
-                        page.metadata["page"] = i + 1
-                        citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
-                        page.page_content += citation
-                        documents.append(page)
-
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        split_docs = splitter.split_documents(documents)
-        split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
-
-        MAX_CHUNKS = 500
-        if len(split_docs) > MAX_CHUNKS:
-            split_docs = split_docs[:MAX_CHUNKS]
-
-        vectorstore = FAISS.from_documents(split_docs, embedding)
-        vectorstore.save_local(VECTOR_DIR)
-
+        # ✅ 기존 벡터스토어만 로드
+        vectorstore = FAISS.load_local(
+            VECTOR_DIR,
+            get_embeddings(),
+            allow_dangerous_deserialization=True
+        )
         _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
         _cached_fingerprint = current_fp
+
         elapsed = (time.perf_counter() - start) * 1000
-        print(f"[TIMER] get_retriever: 신규 벡터스토어 생성 완료 ({elapsed:.2f} ms)")
+        print(f"[TIMER] get_retriever: 로컬 벡터스토어 로드 완료 ({elapsed:.2f} ms)")
+    else:
+        print(f"[INFO] retriever reuse (fingerprint={_cached_fingerprint})")
 
     return _cached_retriever
+
 
 # 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
 def get_history_retriever():

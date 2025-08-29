@@ -6,6 +6,8 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+from langchain.schema import Document
+from datetime import datetime
 
 # -------------------------------
 # 환경설정
@@ -13,7 +15,7 @@ from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 VECTOR_DIR = os.getenv("VECTOR_DIR", "vectorstore")
 DOCS_DIRS = ["docs/manual", "docs/qna"]
 META_PATH = Path("data/artifacts/index_meta.json")
-
+LOW_SCORE_FILE = "logs/low_score.json"
 
 # ✅ bge-m3 임베딩
 def get_embeddings():
@@ -22,8 +24,7 @@ def get_embeddings():
         encode_kwargs={"normalize_embeddings": True}
     )
 
-
-# ✅ 문서 로딩
+# ✅ 문서 로딩 (매뉴얼/문서만 fingerprint 대상)
 def load_documents():
     documents = []
     for docs_dir in DOCS_DIRS:
@@ -34,7 +35,7 @@ def load_documents():
             manual_name = os.path.splitext(filename)[0]
 
             if filename.endswith(".txt"):
-                loader = TextLoader(file_path, encoding='utf-8')
+                loader = TextLoader(file_path, encoding="utf-8")
                 docs = loader.load()
                 for doc in docs:
                     doc.metadata["source"] = manual_name
@@ -46,54 +47,89 @@ def load_documents():
                 for i, page in enumerate(pages):
                     page.metadata["source"] = manual_name
                     page.metadata["page"] = i + 1
-                    citation = f"\n\n(출처: {manual_name} {i+1}페이지)"
-                    page.page_content += citation
+                    page.metadata["citation"] = f"{manual_name} {i+1}페이지"
                     documents.append(page)
+
     return documents
 
+# ✅ low_score.json 로딩 (삭제된 건 무시, 새 항목만 추가)
+def load_low_score_docs():
+    docs = []
+    if os.path.exists(LOW_SCORE_FILE):
+        try:
+            with open(LOW_SCORE_FILE, "r", encoding="utf-8") as f:
+                low_score_data = json.load(f)
+                for item in low_score_data:
+                    q = item.get("question", "").strip()
+                    a = item.get("expected", "").strip()
+                    if q and a:
+                        docs.append(Document(
+                            page_content=f"Q: {q}\nA: {a}",
+                            metadata={"source": "low_score_feedback"}
+                        ))
+            print(f"⚠️ low_score.json 반영됨 (총 {len(docs)}개)")
+        except Exception as e:
+            print(f"❌ low_score.json 로드 실패: {e}")
+    return docs
 
-# ✅ fingerprint 계산
+# ✅ fingerprint 계산 (문서만 기준)
 def calc_fingerprint(docs):
     m = hashlib.md5()
     for d in docs:
         m.update(d.page_content.encode("utf-8"))
     return m.hexdigest()
 
-
-# ✅ 인덱스 생성
-def build_vectorstore(documents):
+# ✅ 인덱스 생성/갱신
+def build_vectorstore(documents, low_score_docs):
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     split_docs = splitter.split_documents(documents)
     split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
 
-    if not split_docs:
-        print("❌ 인덱싱할 문서가 없습니다.")
-        return None
+    embeddings = get_embeddings()
 
     os.makedirs(VECTOR_DIR, exist_ok=True)
-    embeddings = get_embeddings()
-    vectorstore = FAISS.from_documents(split_docs, embeddings)
+
+    # 기존 벡터스토어 있으면 불러오기
+    index_path = os.path.join(VECTOR_DIR, "index.faiss")
+    if os.path.exists(index_path):
+        vectorstore = FAISS.load_local(VECTOR_DIR, embeddings, allow_dangerous_deserialization=True)
+        print("📂 기존 벡터스토어 로드 완료")
+
+        # 새로운 low_score 임베딩 추가
+        if low_score_docs:
+            vectorstore.add_documents(low_score_docs)
+            print(f"➕ low_score {len(low_score_docs)}개 추가 임베딩 완료")
+    else:
+        # 새로 빌드 (문서 + low_score 같이)
+        vectorstore = FAISS.from_documents(split_docs + low_score_docs, embeddings)
+        print("🆕 신규 벡터스토어 생성")
+
+    # 저장
     vectorstore.save_local(VECTOR_DIR)
     print(f"✅ Vectorstore 저장 완료: {VECTOR_DIR}")
     return vectorstore, split_docs
 
-
 # ✅ 메인 실행
 if __name__ == "__main__":
-    print("🚀 문서 로딩 시작...")
-    docs = load_documents()
-    print(f"📄 로드된 문서 페이지 수: {len(docs)}")
+    print("🚀 문서/low_score 로딩 시작...")
 
-    print("🔎 벡터스토어 생성 중...")
-    result = build_vectorstore(docs)
+    docs = load_documents()
+    low_score_docs = load_low_score_docs()
+    print(f"📄 로드된 문서 수: {len(docs)}, low_score 문서 수: {len(low_score_docs)}")
+
+    print("🔎 벡터스토어 생성/갱신 중...")
+    result = build_vectorstore(docs, low_score_docs)
 
     if result:
         vectorstore, split_docs = result
-        # fingerprint 기록
+        # fingerprint 기록 (문서만 대상)
         META_PATH.parent.mkdir(parents=True, exist_ok=True)
         fp = calc_fingerprint(split_docs)
         META_PATH.write_text(
-            json.dumps({"fingerprint": fp}, ensure_ascii=False, indent=2),
+            json.dumps({
+                "docs_fingerprint": fp,
+                "built_at": datetime.utcnow().isoformat()
+            }, ensure_ascii=False, indent=2),
             encoding="utf-8"
         )
-        print(f"✅ index_meta.json 저장됨 (fingerprint={fp})")
+        print(f"✅ index_meta.json 저장됨 (docs_fingerprint={fp})")
