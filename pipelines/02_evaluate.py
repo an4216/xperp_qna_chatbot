@@ -123,27 +123,39 @@ def update_low_score(low_score_logs):
     print(f"⚠️ low_score.json 갱신됨 (총 {len(merged)}개)")
 
 def clean_low_score(results):
-    """ 재평가 결과에서 점수 >= 70인 항목은 low_score.json에서 제거 """
+    """ 재평가 결과에서 점수 >= 70인 항목은 low_score.json에서 제거하고 해소된 항목 추적 """
     if not os.path.exists(LOW_SCORE_FILE):
-        return
+        return []
 
     with open(LOW_SCORE_FILE, "r", encoding="utf-8") as f:
         existing = json.load(f)
 
-    # 아직 점수가 낮은 질문만 유지
+    # 아직 점수가 낮은 질문만 유지, 해소된 항목은 별도 추적
     remaining = []
+    resolved_items = []
+    
     for item in existing:
         q_key = normalize_q(item["question"])
         match = next((r for r in results if normalize_q(r["question"]) == q_key), None)
         if match and match["llm_judge_score"] >= LOW_SCORE_THRESHOLD:
-            print(f"✅ 개선됨 → low_score.json에서 제거: {item['question']}")
+            # 해소된 항목 정보 저장
+            resolved_item = {
+                "question": item["question"],
+                "previous_score": item.get("llm_judge_score", 0),
+                "new_score": match["llm_judge_score"],
+                "resolved_at": datetime.now().isoformat(),
+                "improvement": match["llm_judge_score"] - item.get("llm_judge_score", 0)
+            }
+            resolved_items.append(resolved_item)
+            print(f"✅ 개선됨 → low_score.json에서 제거: {item['question']} ({item.get('llm_judge_score', 0):.1f} → {match['llm_judge_score']:.1f})")
             continue
         remaining.append(item)
 
     with open(LOW_SCORE_FILE, "w", encoding="utf-8") as f:
         json.dump(remaining, f, ensure_ascii=False, indent=2)
 
-    print(f"🧹 low_score.json 정리 완료 (남은 항목 {len(remaining)}개)")
+    print(f"🧹 low_score.json 정리 완료 (남은 항목 {len(remaining)}개, 해소된 항목 {len(resolved_items)}개)")
+    return resolved_items
 
 
 # ================================
