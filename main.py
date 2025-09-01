@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import uvicorn
-from llm import get_ai_response
+from llm import get_ai_response, get_cache_info
 import asyncio
 import json, os, requests   # ✅ requests 추가
 

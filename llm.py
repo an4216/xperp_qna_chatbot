@@ -21,6 +21,8 @@ from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 
 from pathlib import Path
 from dotenv import load_dotenv
+from functools import wraps
+from collections import OrderedDict
 
 from config import answer_examples
 import os
@@ -40,8 +42,46 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "not-needed")  # .env 관리
 TOP_K       = int(os.getenv("TOP_K", "4"))              # 기본값 유지 가능
 VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")    # 기본값 유지 가능
 
-# 세션별 대화 히스토리 저장소
-store = {}
+# 세션별 대화 히스토리 저장소 (리소스 관리 개선)
+class SessionStore:
+    """리소스 관리가 가능한 세션 저장소"""
+    def __init__(self, max_sessions=100, session_timeout=3600):
+        self.store = OrderedDict()
+        self.max_sessions = max_sessions
+        self.session_timeout = session_timeout
+        self.session_timestamps = {}
+    
+    def get_session(self, session_id: str):
+        self._cleanup_old_sessions()
+        
+        if session_id not in self.store:
+            if len(self.store) >= self.max_sessions:
+                # LRU 방식으로 가장 오래된 세션 제거
+                oldest_session = next(iter(self.store))
+                del self.store[oldest_session]
+                self.session_timestamps.pop(oldest_session, None)
+            
+            self.store[session_id] = ChatMessageHistory()
+        
+        self.session_timestamps[session_id] = time.time()
+        # Move to end (LRU)
+        self.store.move_to_end(session_id)
+        return self.store[session_id]
+    
+    def _cleanup_old_sessions(self):
+        current_time = time.time()
+        expired_sessions = [
+            session_id for session_id, timestamp in self.session_timestamps.items()
+            if current_time - timestamp > self.session_timeout
+        ]
+        
+        for session_id in expired_sessions:
+            self.store.pop(session_id, None)
+            self.session_timestamps.pop(session_id, None)
+            print(f"[INFO] 만료된 세션 제거: {session_id}")
+
+# 전역 세션 저장소 인스턴스
+session_store = SessionStore()
 
 # =========================================
 # 전역 캐싱 변수
@@ -52,20 +92,34 @@ _cached_llm = None
 _cached_rag_chain = None
 
 META_PATH = Path("data/artifacts/index_meta.json")
-_cached_retriever = None
 _cached_fingerprint = None
 
+# 정규표현식 컴파일 (성능 최적화)
+MANUAL_REF_PATTERN = re.compile(r'^\s*✅\s*매뉴얼\s*참조:.*$', re.MULTILINE)
+SOURCE_PATTERN = re.compile(r'\(출처:\s*[^)]+\)')
+PAGE_REF_PATTERN = re.compile(r'[(（]?\s*[^)\n]*매뉴얼[^)\n]*\d+\s*페이지\s*참조[)）]?')
+WHITESPACE_PATTERN = re.compile(r'\n{3,}')
+
+def _load_metadata():
+    """메타데이터 로드 통합 함수"""
+    if not META_PATH.exists():
+        return {}
+    
+    try:
+        return json.loads(META_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
+        print(f"[WARNING] 메타데이터 로드 실패: {e}")
+        return {}
+    except Exception as e:
+        print(f"[ERROR] 예상치 못한 오류: {e}")
+        return {}
+
 def _load_fingerprint():
-    if META_PATH.exists():
-        try:
-            meta = json.loads(META_PATH.read_text(encoding="utf-8"))
-            return meta.get("docs_fingerprint")
-        except Exception:
-            return None
-    return None
+    """문서 핑거프린트 로드"""
+    return _load_metadata().get("docs_fingerprint")
 
 # -------------------------------
-# 유틸: few-shot 예시의 '출처' 문구 제거
+# 유틸: few-shot 예시의 '출처' 문구 제거 (성능 최적화)
 # -------------------------------
 def sanitize_examples(examples: list[dict]) -> list[dict]:
     start = time.perf_counter()
@@ -74,17 +128,11 @@ def sanitize_examples(examples: list[dict]) -> list[dict]:
         inp = ex.get("input", "")
         ans = ex.get("answer", "")
 
-        # 1) '✅ 매뉴얼 참조:' 라인 제거
-        ans = re.sub(r'^\s*✅\s*매뉴얼\s*참조:.*$', '', ans, flags=re.MULTILINE)
-
-        # 2) 본문 내 임의 출처 괄호 제거: (출처: ...페이지)
-        ans = re.sub(r'\(출처:\s*[^)]+\)', '', ans)
-
-        # 3) '...페이지 참조' 류 문구 제거 (선택적)
-        ans = re.sub(r'[(（]?\s*[^)\n]*매뉴얼[^)\n]*\d+\s*페이지\s*참조[)）]?', '', ans)
-
-        # 4) 여분 공백 정리
-        ans = re.sub(r'\n{3,}', '\n\n', ans).strip()
+        # 컴파일된 패턴 사용으로 성능 향상
+        ans = MANUAL_REF_PATTERN.sub('', ans)
+        ans = SOURCE_PATTERN.sub('', ans)
+        ans = PAGE_REF_PATTERN.sub('', ans)
+        ans = WHITESPACE_PATTERN.sub('\n\n', ans).strip()
 
         sanitized.append({"input": inp, "answer": ans})
     elapsed = (time.perf_counter() - start) * 1000
@@ -92,11 +140,9 @@ def sanitize_examples(examples: list[dict]) -> list[dict]:
     return sanitized
 
 
-# 1. 세션별 대화 이력 객체 반환
+# 1. 세션별 대화 이력 객체 반환 (리소스 관리 개선)
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
-    if session_id not in store:
-        store[session_id] = ChatMessageHistory()
-    return store[session_id]
+    return session_store.get_session(session_id)
 
 
 # ✅ bge-m3 임베딩 인스턴스 생성 (전역 캐싱)
@@ -120,14 +166,8 @@ def get_retriever():
     start = time.perf_counter()
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
-    # ✅ index_meta.json fingerprint 로드
-    current_fp = None
-    if META_PATH.exists():
-        try:
-            meta = json.loads(META_PATH.read_text(encoding="utf-8"))
-            current_fp = meta.get("docs_fingerprint")   # ✅ ingest.py와 키 통일
-        except Exception:
-            current_fp = None
+    # ✅ index_meta.json fingerprint 로드 (개선된 에러 처리)
+    current_fp = _load_fingerprint()
 
     # retriever가 없거나, fingerprint가 바뀐 경우만 새로 로드
     if _cached_retriever is None or _cached_fingerprint != current_fp:
@@ -137,12 +177,23 @@ def get_retriever():
         if not os.path.exists(index_path):
             raise FileNotFoundError(f"❌ 벡터스토어 없음: {index_path}. 먼저 01_ingest.py 실행 필요")
 
-        # ✅ 기존 벡터스토어만 로드
-        vectorstore = FAISS.load_local(
-            VECTOR_DIR,
-            get_embeddings(),
-            allow_dangerous_deserialization=True
-        )
+        # ✅ 기존 벡터스토어만 로드 (안전한 로딩)
+        try:
+            print(f"[DEBUG] 임베딩 로드 시작...")
+            embeddings = get_embeddings()
+            print(f"[DEBUG] 임베딩 로드 완료, FAISS 로드 시작...")
+            
+            vectorstore = FAISS.load_local(
+                VECTOR_DIR,
+                embeddings,
+                allow_dangerous_deserialization=True
+            )
+            print(f"[DEBUG] FAISS 로드 완료")
+        except Exception as e:
+            print(f"[ERROR] 벡터스토어 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
         _cached_fingerprint = current_fp
 
@@ -297,15 +348,28 @@ def get_rag_chain():
     return _cached_rag_chain
 
 
-# 7. 최종 답변 생성 함수
-def get_ai_response(user_message):
+# 7. 최종 답변 생성 함수 (동적 세션 ID 지원)
+def get_ai_response(user_message, session_id=None):
+    """개선된 AI 답변 생성 함수
+    
+    Args:
+        user_message (str): 사용자 질문
+        session_id (str, optional): 세션 ID. None이면 자동 생성
+    
+    Returns:
+        Generator: 스트리밍 답변 제너레이터
+    """
     start = time.perf_counter()
     rag_chain = get_rag_chain()
+    
+    # 동적 세션 ID 생성 (기본값 제공)
+    if session_id is None:
+        session_id = f"user_{hash(user_message) % 10000:04d}"
 
     # ✅ 'input' 키로 전달
     stream = rag_chain.stream(
         {"input": user_message},
-        config={"configurable": {"session_id": "abc123"}},
+        config={"configurable": {"session_id": session_id}},
     )
 
     def timed_stream():
@@ -317,3 +381,34 @@ def get_ai_response(user_message):
 
     elapsed = (time.perf_counter() - start) * 1000
     return timed_stream()
+
+
+# 리소스 관리 함수들
+def cleanup_resources():
+    """전역 캐시 및 세션 리소스 정리"""
+    global _cached_embeddings, _cached_retriever, _cached_llm, _cached_rag_chain, _cached_fingerprint
+    
+    _cached_embeddings = None
+    _cached_retriever = None
+    _cached_llm = None
+    _cached_rag_chain = None
+    _cached_fingerprint = None
+    
+    # 세션 저장소 정리
+    session_store.store.clear()
+    session_store.session_timestamps.clear()
+    
+    print("[INFO] 모든 캐시 및 세션 리소스 정리 완료")
+
+
+def get_cache_info():
+    """캐시 상태 정보 반환"""
+    cache_status = {
+        "embeddings_cached": _cached_embeddings is not None,
+        "retriever_cached": _cached_retriever is not None,
+        "llm_cached": _cached_llm is not None,
+        "rag_chain_cached": _cached_rag_chain is not None,
+        "fingerprint": _cached_fingerprint,
+        "active_sessions": len(session_store.store)
+    }
+    return cache_status
