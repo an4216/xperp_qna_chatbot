@@ -50,31 +50,31 @@ class SessionStore:
         self.max_sessions = max_sessions
         self.session_timeout = session_timeout
         self.session_timestamps = {}
-    
+
     def get_session(self, session_id: str):
         self._cleanup_old_sessions()
-        
+
         if session_id not in self.store:
             if len(self.store) >= self.max_sessions:
                 # LRU 방식으로 가장 오래된 세션 제거
                 oldest_session = next(iter(self.store))
                 del self.store[oldest_session]
                 self.session_timestamps.pop(oldest_session, None)
-            
+
             self.store[session_id] = ChatMessageHistory()
-        
+
         self.session_timestamps[session_id] = time.time()
         # Move to end (LRU)
         self.store.move_to_end(session_id)
         return self.store[session_id]
-    
+
     def _cleanup_old_sessions(self):
         current_time = time.time()
         expired_sessions = [
             session_id for session_id, timestamp in self.session_timestamps.items()
             if current_time - timestamp > self.session_timeout
         ]
-        
+
         for session_id in expired_sessions:
             self.store.pop(session_id, None)
             self.session_timestamps.pop(session_id, None)
@@ -104,7 +104,7 @@ def _load_metadata():
     """메타데이터 로드 통합 함수"""
     if not META_PATH.exists():
         return {}
-    
+
     try:
         return json.loads(META_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
@@ -182,7 +182,7 @@ def get_retriever():
             print(f"[DEBUG] 임베딩 로드 시작...")
             embeddings = get_embeddings()
             print(f"[DEBUG] 임베딩 로드 완료, FAISS 로드 시작...")
-            
+
             vectorstore = FAISS.load_local(
                 VECTOR_DIR,
                 embeddings,
@@ -306,7 +306,7 @@ def get_rag_chain():
             - 반드시 'context'의 문서 metadata(source/page)에서만 출처를 가져오세요.
             - few-shot 예시 안의 출처/페이지 표기는 무시하세요.
             - 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.
-            - qna.txt를 참조한 경우는 출처 생략하세요.
+            - qna폴더에 있는 문서를 참조한 경우는 출처 생략하세요.
 
             출력 형식 규칙(매우 중요):
             - 반드시 Markdown을 사용하세요.
@@ -351,17 +351,17 @@ def get_rag_chain():
 # 7. 최종 답변 생성 함수 (동적 세션 ID 지원)
 def get_ai_response(user_message, session_id=None):
     """개선된 AI 답변 생성 함수
-    
+
     Args:
         user_message (str): 사용자 질문
         session_id (str, optional): 세션 ID. None이면 자동 생성
-    
+
     Returns:
         Generator: 스트리밍 답변 제너레이터
     """
     start = time.perf_counter()
     rag_chain = get_rag_chain()
-    
+
     # 동적 세션 ID 생성 (기본값 제공)
     if session_id is None:
         session_id = f"user_{hash(user_message) % 10000:04d}"
@@ -387,17 +387,17 @@ def get_ai_response(user_message, session_id=None):
 def cleanup_resources():
     """전역 캐시 및 세션 리소스 정리"""
     global _cached_embeddings, _cached_retriever, _cached_llm, _cached_rag_chain, _cached_fingerprint
-    
+
     _cached_embeddings = None
     _cached_retriever = None
     _cached_llm = None
     _cached_rag_chain = None
     _cached_fingerprint = None
-    
+
     # 세션 저장소 정리
     session_store.store.clear()
     session_store.session_timestamps.clear()
-    
+
     print("[INFO] 모든 캐시 및 세션 리소스 정리 완료")
 
 

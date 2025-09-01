@@ -52,7 +52,7 @@ def load_documents():
 
     return documents
 
-# ✅ low_score.json 로딩 (삭제된 건 무시, 새 항목만 추가)
+# ✅ low_score.json 로딩
 def load_low_score_docs():
     docs = []
     if os.path.exists(LOW_SCORE_FILE):
@@ -72,7 +72,7 @@ def load_low_score_docs():
             print(f"❌ low_score.json 로드 실패: {e}")
     return docs
 
-# ✅ fingerprint 계산 (문서만 기준)
+# ✅ fingerprint 계산
 def calc_fingerprint(docs):
     m = hashlib.md5()
     for d in docs:
@@ -86,21 +86,26 @@ def build_vectorstore(documents, low_score_docs):
     split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
 
     embeddings = get_embeddings()
-
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
-    # 기존 벡터스토어 있으면 불러오기
     index_path = os.path.join(VECTOR_DIR, "index.faiss")
+
     if os.path.exists(index_path):
         vectorstore = FAISS.load_local(VECTOR_DIR, embeddings, allow_dangerous_deserialization=True)
         print("📂 기존 벡터스토어 로드 완료")
 
-        # 새로운 low_score 임베딩 추가
+        # 🔥 새 문서도 추가 반영
+        if split_docs:
+            vectorstore.add_documents(split_docs)
+            print(f"➕ 새 문서 {len(split_docs)}개 추가 임베딩 완료")
+
+        # 🔥 low_score도 항상 반영
         if low_score_docs:
             vectorstore.add_documents(low_score_docs)
             print(f"➕ low_score {len(low_score_docs)}개 추가 임베딩 완료")
+
     else:
-        # 새로 빌드 (문서 + low_score 같이)
+        # 처음 생성할 때는 문서 + low_score 같이
         vectorstore = FAISS.from_documents(split_docs + low_score_docs, embeddings)
         print("🆕 신규 벡터스토어 생성")
 
