@@ -50,6 +50,7 @@ async def chat_test(message: str = Form(...)):
         chunks.append(chunk)
     return PlainTextResponse("".join(chunks))
 # ✅ 사용자 피드백 저장 API
+# ✅ 사용자 피드백 저장 API
 @app.post("/feedback")
 async def feedback(data: dict = Body(...)):
     import requests
@@ -90,6 +91,13 @@ async def feedback(data: dict = Body(...)):
                         "text": f":warning: *사유:*\n```{data.get('reason', '사유 미작성')}```"
                     }
                 },
+                {   # ✅ 코멘트 추가
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"✍️ *코멘트:*\n>{data.get('comment', '코멘트 없음')}"
+                    }
+                },
                 {
                     "type": "context",
                     "elements": [
@@ -104,6 +112,7 @@ async def feedback(data: dict = Body(...)):
             print(f"Slack 전송 오류: {e}")
 
     return {"status": "ok"}
+
 
 
 # 서버 실행 (개발용)
