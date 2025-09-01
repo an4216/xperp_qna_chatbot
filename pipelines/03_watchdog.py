@@ -44,6 +44,12 @@ logging.basicConfig(
 )
 
 class DocsEventHandler(FileSystemEventHandler):
+    def __init__(self, debounce_time=5):
+        super().__init__()
+        self.debounce_time = debounce_time
+        self.last_event_time = 0
+        self.pending = False
+
     def on_any_event(self, event):
         if event.is_directory:
             return
@@ -66,25 +72,35 @@ class DocsEventHandler(FileSystemEventHandler):
             logging.info("[WATCHDOG] fingerprint 동일 → 무시됨 (실제 내용 변경 없음)")
             return
 
-        try:
-            # 1. 인덱스 재생성
-            subprocess.run([sys.executable, "-m", "pipelines.01_ingest"], check=True)
-            logging.info("[WATCHDOG] 01_ingest 실행 완료 ✅")
+        # 이벤트 발생 시간 갱신
+        self.last_event_time = time.time()
+        self.pending = True
 
-            # 2. 평가셋 자동 생성
-            subprocess.run([sys.executable, "-m", "pipelines.02_generate_eval"], check=True)
-            logging.info("[WATCHDOG] 02_generate_eval 실행 완료 ✅")
+    def process_pending(self):
+        """pending 이벤트가 있으면 debounce 후 파이프라인 실행"""
+        if self.pending and (time.time() - self.last_event_time > self.debounce_time):
+            logging.info("[WATCHDOG] 여러 파일 이벤트를 모아서 파이프라인 실행 시작")
+            try:
+                # 1. 인덱스 재생성
+                subprocess.run([sys.executable, "-m", "pipelines.01_ingest"], check=True)
+                logging.info("[WATCHDOG] 01_ingest 실행 완료 ✅")
 
-            # 3. 평가 실행
-            subprocess.run([sys.executable, "-m", "pipelines.02_evaluate"], check=True)
-            logging.info("[WATCHDOG] 02_evaluate 실행 완료 ✅")
+                # 2. 평가셋 자동 생성
+                subprocess.run([sys.executable, "-m", "pipelines.02_generate_eval"], check=True)
+                logging.info("[WATCHDOG] 02_generate_eval 실행 완료 ✅")
 
-        except subprocess.CalledProcessError as e:
-            logging.error(f"[ERROR] 파이프라인 실행 실패: {e}")
+                # 3. 평가 실행
+                subprocess.run([sys.executable, "-m", "pipelines.02_evaluate"], check=True)
+                logging.info("[WATCHDOG] 02_evaluate 실행 완료 ✅")
+
+            except subprocess.CalledProcessError as e:
+                logging.error(f"[ERROR] 파이프라인 실행 실패: {e}")
+            finally:
+                self.pending = False
 
 def main():
     DOCS_ROOT.mkdir(parents=True, exist_ok=True)
-    event_handler = DocsEventHandler()
+    event_handler = DocsEventHandler(debounce_time=5)
     observer = Observer()
     observer.schedule(event_handler, str(DOCS_ROOT), recursive=True)
     observer.start()
@@ -93,6 +109,7 @@ def main():
     try:
         while True:
             time.sleep(1)
+            event_handler.process_pending()
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
