@@ -6,7 +6,7 @@ from pathlib import Path
 
 QNA_DIR = Path("docs/qna")
 EVAL_FILE = Path("data/eval/eval_set.json")
-MAX_TOTAL_QA = 10
+MAX_TOTAL_QA = 30
 
 def parse_line(line: str) -> str:
     """Q/A/T 라인을 안전하게 파싱해서 내용만 반환"""
