@@ -130,15 +130,13 @@ def clean_low_score(results):
     with open(LOW_SCORE_FILE, "r", encoding="utf-8") as f:
         existing = json.load(f)
 
-    # 아직 점수가 낮은 질문만 유지, 해소된 항목은 별도 추적
     remaining = []
     resolved_items = []
-    
+
     for item in existing:
         q_key = normalize_q(item["question"])
         match = next((r for r in results if normalize_q(r["question"]) == q_key), None)
         if match and match["llm_judge_score"] >= LOW_SCORE_THRESHOLD:
-            # 해소된 항목 정보 저장
             resolved_item = {
                 "question": item["question"],
                 "previous_score": item.get("llm_judge_score", 0),
@@ -157,13 +155,13 @@ def clean_low_score(results):
     print(f"🧹 low_score.json 정리 완료 (남은 항목 {len(remaining)}개, 해소된 항목 {len(resolved_items)}개)")
     return resolved_items
 
-
 # ================================
 # 평가 실행
 # ================================
 def run_evaluation(eval_data):
     results = []
     low_score_logs = []
+    low_file = None
 
     for idx, item in enumerate(eval_data, 1):
         question = item["question"]
@@ -197,7 +195,7 @@ def run_evaluation(eval_data):
         if judge_score < LOW_SCORE_THRESHOLD:
             low_score_logs.append(result_item)
 
-    # 점수 낮은 QA 로그 저장 (날짜별로 append)
+    # 점수 낮은 QA 로그 저장 (이번 실행만 기록)
     if low_score_logs:
         os.makedirs(LOG_LOW_SCORE_DIR, exist_ok=True)
         today = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -206,7 +204,7 @@ def run_evaluation(eval_data):
             json.dump(low_score_logs, f, ensure_ascii=False, indent=2)
         print(f"⚠️ 낮은 점수 QA {len(low_score_logs)}개 저장됨 → {low_file}")
 
-    return results, low_score_logs
+    return results, low_score_logs, low_file
 
 # ================================
 # Main
@@ -231,7 +229,7 @@ if __name__ == "__main__":
     print(f"🚀 총 {len(eval_data)}개 질문에 대해 평가 시작...")
 
     # 평가 실행
-    results, low_score_logs = run_evaluation(eval_data)
+    results, low_score_logs, low_file = run_evaluation(eval_data)
 
     # low_score.json 업데이트 & 정리
     update_low_score(low_score_logs)
@@ -259,8 +257,10 @@ if __name__ == "__main__":
 
         mlflow.log_artifact(out_file)
 
-        if low_score_logs:
-            mlflow.log_artifact(LOG_LOW_SCORE_DIR)
+        # ✅ 이번 실행에서 생성된 low_score 파일만 업로드
+        if low_file:
+            mlflow.log_artifact(low_file)
+            print(f"⚠️ 이번 검사 low_score 로그 업로드 완료 → {low_file}")
 
         down_feedback = load_down_feedback()
         if down_feedback:
