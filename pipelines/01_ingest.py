@@ -2,12 +2,12 @@ import os
 import json
 import hashlib
 from pathlib import Path
+from datetime import datetime
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain.schema import Document
-from datetime import datetime
 
 # -------------------------------
 # 환경설정
@@ -24,7 +24,7 @@ def get_embeddings():
         encode_kwargs={"normalize_embeddings": True}
     )
 
-# ✅ 문서 로딩 (매뉴얼/문서만 fingerprint 대상)
+# ✅ 문서 로딩
 def load_documents():
     documents = []
     for docs_dir in DOCS_DIRS:
@@ -91,25 +91,23 @@ def build_vectorstore(documents, low_score_docs):
     index_path = os.path.join(VECTOR_DIR, "index.faiss")
 
     if os.path.exists(index_path):
-        vectorstore = FAISS.load_local(VECTOR_DIR, embeddings, allow_dangerous_deserialization=True)
+        vectorstore = FAISS.load_local(
+            VECTOR_DIR, embeddings, allow_dangerous_deserialization=True
+        )
         print("📂 기존 벡터스토어 로드 완료")
 
-        # 🔥 새 문서도 추가 반영
         if split_docs:
             vectorstore.add_documents(split_docs)
             print(f"➕ 새 문서 {len(split_docs)}개 추가 임베딩 완료")
 
-        # 🔥 low_score도 항상 반영
         if low_score_docs:
             vectorstore.add_documents(low_score_docs)
             print(f"➕ low_score {len(low_score_docs)}개 추가 임베딩 완료")
 
     else:
-        # 처음 생성할 때는 문서 + low_score 같이
         vectorstore = FAISS.from_documents(split_docs + low_score_docs, embeddings)
         print("🆕 신규 벡터스토어 생성")
 
-    # 저장
     vectorstore.save_local(VECTOR_DIR)
     print(f"✅ Vectorstore 저장 완료: {VECTOR_DIR}")
     return vectorstore, split_docs
@@ -127,7 +125,6 @@ if __name__ == "__main__":
 
     if result:
         vectorstore, split_docs = result
-        # fingerprint 기록 (문서만 대상)
         META_PATH.parent.mkdir(parents=True, exist_ok=True)
         fp = calc_fingerprint(split_docs)
         META_PATH.write_text(

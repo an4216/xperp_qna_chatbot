@@ -23,7 +23,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from functools import wraps
 from collections import OrderedDict
-
+from typing import List, Dict
 from config import answer_examples
 import os
 import time
@@ -121,7 +121,7 @@ def _load_fingerprint():
 # -------------------------------
 # 유틸: few-shot 예시의 '출처' 문구 제거 (성능 최적화)
 # -------------------------------
-def sanitize_examples(examples: list[dict]) -> list[dict]:
+def sanitize_examples(examples: List[Dict[str, str]]) -> List[Dict[str, str]]:
     start = time.perf_counter()
     sanitized = []
     for ex in examples:
@@ -227,11 +227,7 @@ def get_history_retriever():
         ]
     )
 
-    history_aware_retriever = create_history_aware_retriever(
-        llm, retriever, contextualize_q_prompt
-    )
-    elapsed = (time.perf_counter() - start) * 1000
-    return history_aware_retriever
+    return create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
 
 # 4. LLM(챗봇) 인스턴스 생성 → vLLM(OpenAI 호환) (전역 캐싱)
 def get_llm():
@@ -349,38 +345,37 @@ def get_rag_chain():
 
 
 # 7. 최종 답변 생성 함수 (동적 세션 ID 지원)
-def get_ai_response(user_message, session_id=None):
-    """개선된 AI 답변 생성 함수
+def get_ai_response(user_message: str, session_id: str = None):
+    """AI 답변 생성 함수 (스트리밍 지원 + 소요시간 표시)
 
     Args:
         user_message (str): 사용자 질문
         session_id (str, optional): 세션 ID. None이면 자동 생성
 
-    Returns:
-        Generator: 스트리밍 답변 제너레이터
+    Yields:
+        str: 스트리밍으로 생성되는 답변 청크
     """
-    start = time.perf_counter()
     rag_chain = get_rag_chain()
 
-    # 동적 세션 ID 생성 (기본값 제공)
+    # 동적 세션 ID 생성
     if session_id is None:
         session_id = f"user_{hash(user_message) % 10000:04d}"
 
-    # ✅ 'input' 키로 전달
+    # ✅ 소요시간 측정 시작
+    start_time = time.perf_counter()
+
+    # ✅ 순수 스트리밍 응답 반환
     stream = rag_chain.stream(
         {"input": user_message},
         config={"configurable": {"session_id": session_id}},
     )
 
-    def timed_stream():
-        inner_start = time.perf_counter()
-        for chunk in stream:
-            yield chunk
-        elapsed_inner = time.perf_counter() - inner_start
-        yield f"\n\n⏱ 소요시간: {elapsed_inner:.2f}s"
+    for chunk in stream:
+        yield chunk
 
-    elapsed = (time.perf_counter() - start) * 1000
-    return timed_stream()
+    # ✅ 소요시간 출력
+    elapsed = time.perf_counter() - start_time
+    yield f"\n\n⏱ 소요시간: {elapsed:.2f}초"
 
 
 # 리소스 관리 함수들

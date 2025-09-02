@@ -23,15 +23,16 @@ jsonpatch==1.33
 jsonpointer==3.0.0
 jsonschema==4.22.0
 jsonschema-specifications==2023.12.1
+
+# LangChain (pydantic v2 기반 0.2.x 안정화)
 langchain==0.2.3
 langchain-community==0.2.4
-langchain-core>=0.2.20,<0.3.0
+langchain-core==0.2.38
 langchain-openai==0.1.8
-langchain-pinecone==0.1.1
 langchain-text-splitters==0.2.1
 langchainhub==0.1.20
 langsmith==0.1.77
-langchain-ollama==0.1.0
+
 markdown-it-py==3.0.0
 MarkupSafe==2.1.5
 marshmallow==3.21.3
@@ -44,12 +45,15 @@ orjson==3.10.4
 packaging==23.2
 pandas==2.2.2
 pillow==10.3.0
-pinecone-client==3.2.2
 protobuf==4.25.3
-# pyarrow==16.1.0   ← ❌ 충돌
-pyarrow==15.0.2     # ✅ streamlit & mlflow 둘 다 호환
+
+# pyarrow (streamlit & mlflow 호환)
+pyarrow==15.0.2
+
+# Pydantic v2 계열
 pydantic==2.7.4
 pydantic_core==2.18.4
+
 pydeck==0.9.1
 Pygments==2.18.0
 python-dateutil==2.9.0.post0
@@ -90,6 +94,7 @@ safetensors>=0.4.3
 tokenizers>=0.15.2
 sentencepiece>=0.2.0
 
+# FastAPI & MLOps
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
