@@ -69,7 +69,11 @@
       let hasSentFirstMessage = false;
       let isBusy = false;
       let lastUserMessage = "";
-
+      let chatId = localStorage.getItem('chat_id');
+      if (!chatId) {
+        chatId = (crypto?.randomUUID && crypto.randomUUID()) || (Date.now() + '_' + Math.random().toString(16).slice(2));
+        localStorage.setItem('chat_id', chatId);
+      }
       const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
       );
@@ -138,7 +142,7 @@
         try {
           const formData = new FormData();
           formData.append('message', message);
-
+          formData.append('session_id', chatId);
           // ✅ 1) 로딩 UI를 fetch 전에 먼저 붙인다
           const wrapper = document.createElement('div');
           const msgId = Date.now();

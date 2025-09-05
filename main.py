@@ -30,8 +30,12 @@ async def read_root(request: Request):
 
 # ✅ 채팅 API 엔드포인트 (스트리밍 버전)
 @app.post("/chat")
-async def chat(message: str = Form(...)):
-    ai_response_generator = get_ai_response(message)
+async def chat(message: str = Form(...), session_id: str = Form(None)):
+    # FE가 반드시 session_id를 넘기게 하고, 없으면 에러 리턴(개발 중엔 기본값 줄 수도 있음)
+    if not session_id:
+        return PlainTextResponse("session_id is required", status_code=400)
+
+    ai_response_generator = get_ai_response(message, session_id=session_id)
 
     async def event_stream():
         for chunk in ai_response_generator:
