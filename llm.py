@@ -192,11 +192,13 @@ def get_retriever():
 def get_llm():
     global _cached_llm
     if _cached_llm is None:
+        start = time.perf_counter()
         _cached_llm = ChatOpenAI(
             base_url=VLLM_BASE_URL,
             api_key=OPENAI_API_KEY,
             model=MODEL_LLM,
         )
+        elapsed = (time.perf_counter() - start) * 1000
     return _cached_llm
 
 # 4. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
