@@ -85,6 +85,7 @@ _cached_embeddings = None
 _cached_retriever = None
 _cached_llm = None
 _cached_rag_chain = None
+_cached_vectorstore = None   # ✅ 추가
 
 META_PATH = Path("data/artifacts/index_meta.json")
 _cached_fingerprint = None
@@ -151,12 +152,11 @@ def get_embeddings():
 
 # 2. 문서 로드 + 벡터스토어 로드 (전역 캐싱)
 def get_retriever():
-    global _cached_retriever, _cached_fingerprint
+    global _cached_retriever, _cached_vectorstore, _cached_fingerprint
 
     os.makedirs(VECTOR_DIR, exist_ok=True)
     current_fp = _load_fingerprint()
 
-    # retriever가 없거나, fingerprint가 바뀐 경우만 새로 로드
     if _cached_retriever is None or _cached_fingerprint != current_fp:
         print(f"[INFO] retriever reload triggered (old={_cached_fingerprint}, new={current_fp})")
 
@@ -164,24 +164,13 @@ def get_retriever():
         if not os.path.exists(index_path):
             raise FileNotFoundError(f"❌ 벡터스토어 없음: {index_path}. 먼저 01_ingest.py 실행 필요")
 
-        try:
-            print(f"[DEBUG] 임베딩 로드 시작...")
-            embeddings = get_embeddings()
-            print(f"[DEBUG] 임베딩 로드 완료, FAISS 로드 시작...")
-
-            vectorstore = FAISS.load_local(
-                VECTOR_DIR,
-                embeddings,
-                allow_dangerous_deserialization=True
-            )
-            print(f"[DEBUG] FAISS 로드 완료")
-        except Exception as e:
-            print(f"[ERROR] 벡터스토어 로드 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-
-        _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+        embeddings = get_embeddings()
+        _cached_vectorstore = FAISS.load_local(
+            VECTOR_DIR,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+        _cached_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': TOP_K})
         _cached_fingerprint = current_fp
     else:
         print(f"[INFO] retriever reuse (fingerprint={_cached_fingerprint})")
@@ -325,27 +314,46 @@ def get_rag_chain():
 
 # 6. 최종 답변 생성 함수 (FE가 준 session_id 사용)
 def get_ai_response(user_message: str, session_id: str):
-    """
-    AI 답변 생성 함수 (스트리밍 지원 + 소요시간 표시)
-    - FE에서 받은 session_id로 히스토리를 이어서 관리
-    """
     rag_chain = get_rag_chain()
 
     if not session_id:
         raise ValueError("session_id is required (FE에서 생성하여 전달하세요).")
 
-    start_time = time.perf_counter()
+    # ✅ 검색 결과 디버깅 로그 (중복 제거 포함)
+    if _cached_vectorstore:
+        try:
+            results = _cached_vectorstore.similarity_search_with_score(user_message, k=TOP_K * 2)
+            seen = set()
+            unique_results = []
+            for doc, score in results:
+                key = (doc.metadata.get("source", "unknown"), doc.metadata.get("page", "N/A"))
+                if key not in seen:
+                    seen.add(key)
+                    unique_results.append((doc, score))
+                if len(unique_results) >= TOP_K:
+                    break
 
+            print(f"\n[DEBUG] 🔍 Top {TOP_K} (중복 제거 후) 검색 결과:")
+            for i, (doc, score) in enumerate(unique_results, 1):
+                meta = doc.metadata
+                preview = doc.page_content[:150].replace("\n", " ")
+                print(f"--- #{i} ---")
+                print(f"source: {meta.get('source', 'unknown')}, page: {meta.get('page', 'N/A')}, score: {score:.4f}")
+                print(f"content: {preview}...\n")
+        except Exception as e:
+            print(f"[WARN] 검색 결과 로깅 실패: {e}")
+
+    start_time = time.perf_counter()
     stream = rag_chain.stream(
         {"input": user_message},
         config={"configurable": {"session_id": session_id}},
     )
-
     for chunk in stream:
         yield chunk
 
     elapsed = time.perf_counter() - start_time
     yield f"\n\n⏱ 소요시간: {elapsed:.2f}초"
+
 
 # 리소스 관리 함수들
 def cleanup_resources():
