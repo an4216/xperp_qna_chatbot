@@ -71,11 +71,20 @@
       let lastUserMessage = "";
       let chatId = localStorage.getItem('chat_id');
       if (!chatId) {
-        chatId = (crypto?.randomUUID && crypto.randomUUID()) || (Date.now() + '_' + Math.random().toString(16).slice(2));
+        chatId = (crypto?.randomUUID && crypto.randomUUID())
+                || (Date.now() + '_' + Math.random().toString(16).slice(2));
         localStorage.setItem('chat_id', chatId);
       }
+
+      // ✅ 홈 버튼 클릭 시 세션 초기화 후 리로드
+      document.querySelector('.chat-home')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        localStorage.removeItem('chat_id');  // 세션 클리어
+        window.location.reload();
+      });
+
       const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+              ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
       );
 
       const autoResize = () => {
@@ -135,15 +144,13 @@
         autoResize();
         lastUserMessage = message;
 
-        // ...생략...
-
         lockInput();
 
         try {
           const formData = new FormData();
           formData.append('message', message);
           formData.append('session_id', chatId);
-          // ✅ 1) 로딩 UI를 fetch 전에 먼저 붙인다
+
           const wrapper = document.createElement('div');
           const msgId = Date.now();
           wrapper.className = 'bot-message-container';
@@ -155,26 +162,23 @@
           const loadingEl = document.createElement('span');
           loadingEl.className = 'loading-dots';
           loadingEl.innerHTML = `
-    <span class="loading-dot"></span>
-    <span class="loading-dot"></span>
-    <span class="loading-dot"></span>
-  `;
+          <span class="loading-dot"></span>
+          <span class="loading-dot"></span>
+          <span class="loading-dot"></span>
+        `;
           botDiv.appendChild(loadingEl);
           wrapper.appendChild(botDiv);
           chatContent.appendChild(wrapper);
           scrollToBottom();
 
-          // ✅ 2) 페인트 기회 부여(선택)
           await new Promise(requestAnimationFrame);
 
-          // ✅ 3) 이제 fetch 시작
           const response = await fetch('/chat', {
             method: 'POST',
             body: formData
           });
 
           if (!response.ok || !response.body) {
-            // 로딩상태 제거 후 에러 출력
             botDiv.classList.remove('status-loading');
             if (loadingEl) loadingEl.remove();
             botDiv.textContent = `오류 발생 (${response.status})`;
@@ -184,20 +188,16 @@
           const reader = response.body.getReader();
           const decoder = new TextDecoder("utf-8");
           let botMessage = '';
-          let isFirstChunk = true; // ✅ 첫 chunk인지 판단하는 플래그
+          let isFirstChunk = true;
 
           while (true) {
             const { done, value } = await reader.read();
             if (done) {
-              // ✅ 1. 로딩 상태 제거
               botDiv.classList.remove('status-loading');
-
-              // ✅ 2. 마지막 p 태그에 'elapsed' 클래스 추가
               const lastP = botDiv.querySelector('p:last-of-type');
               if (lastP && lastP.textContent.includes('소요시간')) {
-                lastP.classList.add('elapsed'); // 원하는 클래스명으로 바꿔도 됨
+                lastP.classList.add('elapsed');
               }
-
               break;
             }
 
@@ -208,61 +208,56 @@
             }
 
             botMessage += decoder.decode(value, { stream: true });
-
-            // 📌 마크다운 파싱해서 표시
             botDiv.innerHTML = marked.parse(botMessage);
             scrollToBottom();
           }
 
-
-          // ✅ 피드백 박스 추가(기존 그대로)
+          // ✅ 피드백 박스 추가
           const feedbackBox = document.createElement('div');
           feedbackBox.className = 'feedback-box';
           feedbackBox.innerHTML = `
-    <div class="feedback-buttons">
-      <button class="icon-button" aria-label="좋아요">
-        <span class="like-icon"></span>
-      </button>
-      <button class="icon-button" data-role="dislike" aria-label="개선이 필요해요">
-        <span class="dislike-icon"></span>
-      </button>
-    </div>
-    <div class="feedback-form" style="display: none;">
-      <p class="feedback-title">(필수)이름 입력</p>
-      <div class="feedback-input-box">
-        <input type="text" class="feedback-input" placeholder="이름을 입력해주세요.">
-      </div>
-      <p class="feedback-title">어떤 점이 불만족스러우셨나요?</p>
-      <div class="feedback-options">
-        <button class="option-button">내용이 부정확해요.</button>
-        <button class="option-button">중복되거나 반복적인 설명이에요.</button>
-        <button class="option-button">답변이 너무 짧거나 성의없어 보여요.</button>
-        <button class="option-button">답변이 너무 길거나 불필요하게 장황해요.</button>
-        <button class="option-button">업무에 적용하기 어려운 답변이에요.</button>
-        <button class="option-button">기타(의견을 작성해주세요)</button>
-      </div>
-      <div class="feedback-comment-box">
-        <textarea class="feedback-textarea" placeholder="의견을 입력해 주세요" style="display:none;"></textarea>
-        <div class="feedback-actions">
-          <button class="btn-cancel">취소</button>
-          <button class="btn-submit" disabled>제출</button>
-        </div>
-      </div>
-    </div>
-  `;
+          <div class="feedback-buttons">
+            <button class="icon-button" aria-label="좋아요">
+              <span class="like-icon"></span>
+            </button>
+            <button class="icon-button" data-role="dislike" aria-label="개선이 필요해요">
+              <span class="dislike-icon"></span>
+            </button>
+          </div>
+          <div class="feedback-form" style="display: none;">
+            <p class="feedback-title">(필수)이름 입력</p>
+            <div class="feedback-input-box">
+              <input type="text" class="feedback-input" placeholder="이름을 입력해주세요.">
+            </div>
+            <p class="feedback-title">어떤 점이 불만족스러우셨나요?</p>
+            <div class="feedback-options">
+              <button class="option-button">내용이 부정확해요.</button>
+              <button class="option-button">중복되거나 반복적인 설명이에요.</button>
+              <button class="option-button">답변이 너무 짧거나 성의없어 보여요.</button>
+              <button class="option-button">답변이 너무 길거나 불필요하게 장황해요.</button>
+              <button class="option-button">업무에 적용하기 어려운 답변이에요.</button>
+              <button class="option-button">기타(의견을 작성해주세요)</button>
+            </div>
+            <div class="feedback-comment-box">
+              <textarea class="feedback-textarea" placeholder="의견을 입력해 주세요" style="display:none;"></textarea>
+              <div class="feedback-actions">
+                <button class="btn-cancel">취소</button>
+                <button class="btn-submit" disabled>제출</button>
+              </div>
+            </div>
+          </div>
+        `;
           wrapper.appendChild(feedbackBox);
           scrollToBottom();
 
         } catch (err) {
           console.error(err);
-          // 로딩상태가 떠있다면 정리
           const lastBot = chatContent.querySelector('.bot-message.status-loading');
           if (lastBot) lastBot.classList.remove('status-loading');
           addMessage('bot', '오류 발생. 네트워크 확인 후 다시 시도해주세요.');
         } finally {
           unlockInput();
         }
-
       };
 
       // 피드백 이벤트
@@ -277,28 +272,24 @@
         const dislikeButton = box.querySelector('[data-role="dislike"]');
 
         if (target.closest('.like-icon')) {
-          // 버튼이 이미 선택된 상태이면 아무 것도 하지 않음
           if (likeButton.classList.contains('status-selected')) return;
 
-          // 👉 wrapper와 form 영역 찾기
           const form = box.querySelector('.feedback-form');
           const textarea = box.querySelector('.feedback-textarea');
           const selected = box.querySelector('.option-button.selected');
 
-          // ❌ 수정 전 상태 초기화 → 제거하지 않음 (좋아요는 수정 불가)
           if (form) form.style.display = 'none';
           if (textarea) textarea.value = '';
           if (selected) selected.classList.remove('selected');
           updateSubmitState(box);
 
-          // 👍 버튼 상태 설정
           box.querySelectorAll('.icon-button').forEach(btn => {
             btn.classList.remove('status-selected');
-            btn.disabled = true; // ✅ 버튼 비활성화
+            btn.disabled = true;
           });
           likeButton.classList.add('status-selected');
           if (dislikeButton) dislikeButton.remove();
-          // 👍 피드백 전송
+
           const payload = {
             message: lastUserMessage,
             response: responseText,
@@ -311,7 +302,6 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
             });
-            // ✅ 메시지 출력 제거됨
           } catch (err) {
             console.error("좋아요 전송 실패", err);
           }
@@ -320,7 +310,6 @@
         if (target.closest('.dislike-icon')) {
           dislikeButton.classList.add('status-selected');
           likeButton.classList.remove('status-selected');
-
           const form = box.querySelector('.feedback-form');
           form.style.display = 'block';
         }
@@ -333,16 +322,14 @@
           const textarea = box.querySelector('.feedback-textarea');
           if (textarea) {
             if (target.innerText.includes('기타')) {
-              textarea.style.display = 'block'; // ✅ 기타일 때만 textarea 표시
+              textarea.style.display = 'block';
             } else {
-              textarea.style.display = 'none';  // ✅ 기타 아닐 때 숨김
-              textarea.value = '';              // ✅ 값 초기화
+              textarea.style.display = 'none';
+              textarea.value = '';
             }
           }
-
           updateSubmitState(box);
         }
-
 
         if (target.classList.contains('feedback-textarea')) {
           target.addEventListener('input', () => updateSubmitState(box), { once: true });
@@ -351,13 +338,13 @@
         if (target.classList.contains('btn-submit')) {
           const selected = box.querySelector('.option-button.selected');
           const textarea = box.querySelector('.feedback-textarea');
-          const nameInput = box.querySelector('.feedback-input'); // ✅ 이름 input
+          const nameInput = box.querySelector('.feedback-input');
           const reason = selected ? selected.innerText : '';
           const comment = textarea.value.trim();
           const name = nameInput ? nameInput.value.trim() : "";
 
           if (!name) {
-            alert("이름을 입력해주세요.");  // ✅ 이름 필수 체크
+            alert("이름을 입력해주세요.");
             return;
           }
 
@@ -366,7 +353,6 @@
             return;
           }
 
-          // ✅ reason 값 보정: 기타일 경우 작성한 의견을 포함
           let displayReason = reason;
           if (reason.includes('기타')) {
             let shortComment = comment;
@@ -382,7 +368,7 @@
             feedback: "down",
             reason,
             comment,
-            name,   // ✅ 이름 기록
+            name,
             timestamp: new Date().toISOString()
           };
 
@@ -393,44 +379,40 @@
               body: JSON.stringify(payload)
             });
 
-            // ✅ 결과 메시지 표시
             const form = box.querySelector('.feedback-form');
             if (form) form.style.display = 'none';
 
-            const dislikeButton = box.querySelector('[data-role="dislike"]');
-            const likeButton = box.querySelector('[aria-label="좋아요"]');
             const optionButtons = box.querySelectorAll('.option-button');
-            const feedbackTextarea = box.querySelector('.feedback-textarea');
-            const cancelBtn = box.querySelector('.btn-cancel');
-            const submitBtn = box.querySelector('.btn-submit');
-            const nameField = box.querySelector('.feedback-input');
-
-            if (dislikeButton) dislikeButton.disabled = true;
-            if (likeButton) likeButton.remove();
             optionButtons.forEach(btn => btn.disabled = true);
+
+            const feedbackTextarea = box.querySelector('.feedback-textarea');
             if (feedbackTextarea) feedbackTextarea.disabled = true;
+
+            const cancelBtn = box.querySelector('.btn-cancel');
             if (cancelBtn) cancelBtn.disabled = true;
+
+            const submitBtn = box.querySelector('.btn-submit');
             if (submitBtn) submitBtn.disabled = true;
+
+            const nameField = box.querySelector('.feedback-input');
             if (nameField) nameField.disabled = true;
 
-            // ✅ "기타 (의견 ...)" 반영된 UI
             const resultBox = document.createElement('div');
             resultBox.className = 'feedback-result-box';
             resultBox.innerHTML = `
-      <div class="feedback-selected">
-        <p id="feedbackSeletText">${displayReason}</p>
-      </div>
-      <div class="feedback-result">
-        <p class="feedback-thanks">소중한 의견 감사합니다. (${name}님)</p> <!-- ✅ 이름도 표시 -->
-        <button type="button" class="btn-close">닫기</button>
-      </div>
-    `;
+            <div class="feedback-selected">
+              <p id="feedbackSeletText">${displayReason}</p>
+            </div>
+            <div class="feedback-result">
+              <p class="feedback-thanks">소중한 의견 감사합니다. (${name}님)</p>
+              <button type="button" class="btn-close">닫기</button>
+            </div>
+          `;
             box.appendChild(resultBox);
           } catch (err) {
             console.error("비추 전송 실패", err);
           }
         }
-
 
         if (target.classList.contains('btn-cancel')) {
           const form = box.querySelector('.feedback-form');
@@ -438,20 +420,16 @@
           const selected = box.querySelector('.option-button.selected');
           const dislikeButton = box.querySelector('[data-role="dislike"]');
 
-          // 폼/선택 초기화
           form.style.display = 'none';
           if (textarea) textarea.value = '';
           if (selected) selected.classList.remove('selected');
 
-          // ✅ 싫어요 버튼 다시 비활성화 해제
           if (dislikeButton) {
             dislikeButton.classList.remove('status-selected');
             dislikeButton.disabled = false;
           }
-
           updateSubmitState(box);
         }
-
 
         if (target.classList.contains('btn-close')) {
           const resultBox = box.querySelector('.feedback-result-box');
@@ -484,16 +462,14 @@
 
       autoResize();
       updateSendButtonState();
+    });
 
-      document.querySelector('.chat-home')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.location.reload();
-      });
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted || performance.getEntriesByType("navigation")[0].type === "reload") {
+        localStorage.removeItem("chat_id");
+      }
     });
   </script>
-
-
-
 
 
 </body>
