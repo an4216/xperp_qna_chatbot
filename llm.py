@@ -242,8 +242,11 @@ def get_history_retriever():
     llm = get_llm()
     retriever = get_retriever()
     system_prompt = (
-        "Reformulate the latest user question into a standalone question. "
-        "Do NOT answer, just rewrite."
+        "Given a chat history and the latest user question "
+        "which might reference context in the chat history, "
+        "formulate a standalone question which can be understood "
+        "without the chat history. Do NOT answer the question, "
+        "just reformulate it if needed and otherwise return it as is."
     )
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
