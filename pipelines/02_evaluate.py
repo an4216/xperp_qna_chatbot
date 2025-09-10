@@ -171,7 +171,7 @@ def run_evaluation(eval_data):
         print(f"✅ 기대 답변: {expected}")
 
         start = time.perf_counter()
-        response = "".join(get_ai_response(question))
+        response = "".join(get_ai_response(question, session_id="eval"))
         elapsed = time.perf_counter() - start
 
         print(f"🤖 모델 답변: {response}")
