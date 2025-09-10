@@ -225,7 +225,6 @@ def process_question(question: str):
                 "question": rewritten
             })
             if llm_rewrite:
-                print(f"[DEBUG] 보정: '{rewritten}' -> '{llm_rewrite}'")
                 return llm_rewrite
         except Exception as e:
             print(f"[WARN] 2차 보정 실패: {e}")
@@ -365,7 +364,7 @@ def get_ai_response(user_message: str, session_id: str):
         print(f"[WARN] 질문 보정 실패: {e}")
         effective_message = user_message
 
-    yield f"🔧 보정된 질문: {effective_message}\n\n"
+#     yield f"🔧 보정된 질문: {effective_message}\n\n"
 
     start = time.perf_counter()
     stream = rag_chain.stream(
