@@ -353,8 +353,8 @@ def get_ai_response(user_message: str, session_id: str):
         raise ValueError("session_id is required.")
 
     # ✅ 세션 강제 초기화: 같은 session_id라도 항상 새로운 히스토리로 시작
-    session_store.store.pop(session_id, None)
-    session_store.session_timestamps.pop(session_id, None)
+#     session_store.store.pop(session_id, None)
+#     session_store.session_timestamps.pop(session_id, None)
 
     rag_chain = get_rag_chain()
 
