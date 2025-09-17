@@ -364,7 +364,7 @@ def get_ai_response(user_message: str, session_id: str):
         print(f"[WARN] 질문 보정 실패: {e}")
         effective_message = user_message
 
-    yield f"🔧 보정된 질문: {effective_message}\n\n"
+#     yield f"🔧 보정된 질문: {effective_message}\n\n"
 
     start = time.perf_counter()
     stream = rag_chain.stream(
