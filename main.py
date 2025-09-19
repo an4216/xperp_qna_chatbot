@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 import uvicorn
 from llm import get_ai_response, get_cache_info
 import asyncio
-import json, os, requests   # ✅ requests 추가
+import json, os
+from httpx import AsyncClient, HTTPError
 
 
 # FastAPI 앱 생성
@@ -57,7 +58,6 @@ async def chat_test(message: str = Form(...)):
 # ✅ 사용자 피드백 저장 API
 @app.post("/feedback")
 async def feedback(data: dict = Body(...)):
-    import requests
 
     # 1) 피드백 로그 파일 저장
     os.makedirs("logs", exist_ok=True)
@@ -79,42 +79,62 @@ async def feedback(data: dict = Body(...)):
                     "text": {
                         "type": "mrkdwn",
                         "text": f"*🙋 질문자:* {user_name}\n*🙋 질문:*\n>{data.get('message')}"
-                    }
+                    },
                 },
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
                         "text": f"*💬 답변 (요약):*\n>{data.get('response')[:300]}..."
-                    }
+                    },
                 },
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
                         "text": f":warning: *사유:*\n```{data.get('reason', '사유 미작성')}```"
-                    }
+                    },
                 },
                 {   # ✅ 코멘트 추가
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
                         "text": f"✍️ *코멘트:*\n>{data.get('comment', '코멘트 없음')}"
-                    }
+                    },
                 },
                 {
                     "type": "context",
                     "elements": [
                         {"type": "mrkdwn", "text": ":loudspeaker: <!channel> 모든 분 확인 바랍니다."}
-                    ]
-                }
-            ]
+                    ],
+                },
+            ],
         }
-        try:
-            requests.post(SLACK_WEBHOOK_URL, json=message)
-        except Exception as e:
-            print(f"Slack 전송 오류: {e}")
 
+        async def send_slack_webhook(payload: dict) -> None:
+            """Slack Webhook을 비동기로 전송하면서 기본 재시도를 수행합니다."""
+            async with AsyncClient(timeout=5.0) as client:
+                for attempt in range(3):
+                    try:
+                        response = await client.post(SLACK_WEBHOOK_URL, json=payload)
+                        response.raise_for_status()
+                        return
+                    except HTTPError as exc:
+                        if attempt == 2:
+                            print(f"Slack 전송 실패: {exc}")
+                        else:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+                    except Exception as exc:
+                        if attempt == 2:
+                            print(f"Slack 전송 예기치 못한 실패: {exc}")
+                        else:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                            continue
+                    # 마지막 시도까지 실패하면 루프 종료
+                    break
+
+        await send_slack_webhook(message)
     return {"status": "ok"}
 
 

@@ -27,7 +27,9 @@ def calc_fingerprint(file_path: Path) -> str:
 def load_last_fingerprint():
     if META_PATH.exists():
         try:
-            return json.loads(META_PATH.read_text(encoding="utf-8")).get("fingerprint")
+            data = json.loads(META_PATH.read_text(encoding='utf-8'))
+            # 우선 docs_fingerprint 키를 보고, 구버전 fingerprint 키도 대비
+            return data.get('docs_fingerprint') or data.get('fingerprint')
         except Exception:
             return None
     return None
