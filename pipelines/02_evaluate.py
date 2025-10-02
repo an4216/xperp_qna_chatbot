@@ -1,6 +1,8 @@
+# evaluate.py
 import os
 import json
 import time
+import re
 import numpy as np
 from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
@@ -34,38 +36,91 @@ def similarity_score(expected: str, actual: str) -> float:
     return float(score * 100)
 
 # ================================
+# 유틸
+# ================================
+_TIME_LINE_RE = re.compile(r"^\s*⏱\s*소요시간:.*$", re.MULTILINE)
+
+def sanitize_response(s: str) -> str:
+    """평가에 불필요한 라인 제거 및 정리."""
+    if not s:
+        return ""
+    # get_ai_response 마지막 타임라인 제거
+    s = _TIME_LINE_RE.sub("", s)
+    # 제어문자 제거
+    s = "".join(ch for ch in s if ch == "\n" or ord(ch) >= 32)
+    # 양끝 공백 정리
+    return s.strip()
+
+def safe_collect_response_from_stream(question: str, session_id: str = "eval", retries: int = 1) -> str:
+    """
+    스트리밍 수집 중 예외가 나도 폴백으로 이어서 평가가 가능하도록 함.
+    1) get_ai_response 스트림 수집 시도
+    2) 실패하면 get_llm().invoke(question) 폴백
+    3) 두 경로 모두 실패 시 빈 문자열 반환
+    """
+    # 1) 스트림 수집
+    attempt = 0
+    while attempt <= retries:
+        try:
+            buf_parts = []
+            for chunk in get_ai_response(question, session_id=session_id):
+                # chunk가 dict/객체일 가능성 방지
+                if chunk is None:
+                    continue
+                buf_parts.append(str(chunk))
+            return sanitize_response("".join(buf_parts))
+        except Exception as e:
+            print(f"[WARN] stream 실패 (attempt={attempt}/{retries}): {type(e).__name__} - {e}")
+            attempt += 1
+            if attempt <= retries:
+                time.sleep(0.3)
+
+    # 2) 폴백: LLM 직접 단발 호출 (RAG 미사용)
+    try:
+        llm = get_llm()
+        result = llm.invoke(question)
+        text = getattr(result, "content", None)
+        if not text:
+            # openai 호환 드라이버가 dict로 줄 가능성 방지
+            text = str(result)
+        return sanitize_response(text)
+    except Exception as e:
+        print(f"[ERROR] fallback LLM 호출도 실패: {type(e).__name__} - {e}")
+        return ""
+
+# ================================
 # LLM Judge 기반 평가
 # ================================
 def llm_judge_score(expected: str, actual: str) -> float:
     llm = get_llm()
     prompt = f"""
     당신은 평가 전문가로서, 두 텍스트(기대 답변과 실제 답변)의 의미적 일치도를 평가해야 합니다.
-    이 평가는 **NLI(Natural Language Inference)** 및 **Semantic Textual Similarity(STS)** 원칙을 기반으로 합니다.
-    또한, 기대 답변(expected)은 '골든 레퍼런스(golden reference)'로 간주됩니다.
+    이 평가는 NLI 및 STS 원칙을 기반으로 하며, 기대 답변(expected)은 골든 레퍼런스입니다.
 
-    ### 평가 기준:
-    - 100점: 의미적으로 완전히 동일 (표현이 달라도 핵심 의도/정보가 완벽히 일치)
-    - 70~99점: 핵심 의미는 동일하나, 일부 표현·세부 설명·부가 맥락에서 차이가 있음
-    - 40~69점: 부분적으로만 일치 (일부는 맞지만 중요한 사실이 누락되거나 잘못됨)
-    - 1~39점: 대부분 불일치 (거의 다른 내용이나 잘못된 설명)
-    - 0점: 완전히 불일치 (전혀 다른 답변)
+    ### 기준:
+    - 100: 의미 완전 동일
+    - 70~99: 핵심 동일, 일부 표현/세부 차이
+    - 40~69: 일부만 일치(중요 사실 누락/오류)
+    - 1~39: 대부분 불일치
+    - 0: 완전 불일치
 
-    기대 답변은 항상 기준(golden reference)이며, 실제 답변이 얼마나 잘 부합하는지 의미적으로 평가하세요.
-    평가 시 단순한 단어 겹침이 아니라 **논리적 포함관계(entailment)**와 **의미 유사성**을 중점적으로 고려하세요.
-
-    ✅ 기대 답변 (Golden Reference):
+    ✅ 기대 답변:
     {expected}
 
-    🤖 실제 답변 (Model Output):
+    🤖 실제 답변:
     {actual}
 
     출력 형식: 숫자만 (예: 85)
-    """
-    result = llm.invoke(prompt)
+    """.strip()
+
     try:
-        score = int("".join([c for c in result.content if c.isdigit()]))
-        return min(max(score, 0), 100)
-    except:
+        result = llm.invoke(prompt)
+        raw = getattr(result, "content", "") if result is not None else ""
+        digits = "".join(c for c in str(raw) if c.isdigit())
+        score = int(digits) if digits else 0
+        return max(0, min(100, score))
+    except Exception as e:
+        print(f"[WARN] llm_judge_score 실패: {type(e).__name__} - {e}")
         return 0
 
 # ================================
@@ -88,7 +143,7 @@ def load_down_feedback(feedback_file="logs/feedback.jsonl"):
                         "comment": fb.get("comment", ""),
                         "timestamp": fb.get("timestamp", "")
                     })
-            except:
+            except Exception:
                 continue
     return down_list
 
@@ -96,11 +151,9 @@ def load_down_feedback(feedback_file="logs/feedback.jsonl"):
 # Low score 관리
 # ================================
 def normalize_q(s: str) -> str:
-    """질문 텍스트 정규화 (공백, 대소문자)"""
     return " ".join(s.strip().split()).lower()
 
 def update_low_score(low_score_logs):
-    """ 새로 발견된 low_score QA를 low_score.json에 병합 (중복 제거) """
     if not low_score_logs:
         return
 
@@ -109,30 +162,24 @@ def update_low_score(low_score_logs):
         with open(LOW_SCORE_FILE, "r", encoding="utf-8") as f:
             existing = json.load(f)
 
-    # 기존 + 신규 통합 (중복 제거)
     seen = {normalize_q(x["question"]): x for x in existing}
     for item in low_score_logs:
-        key = normalize_q(item["question"])
-        seen[key] = item  # 최신 기록으로 갱신
+        seen[normalize_q(item["question"])] = item
 
     merged = list(seen.values())
-
     with open(LOW_SCORE_FILE, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
 
     print(f"⚠️ low_score.json 갱신됨 (총 {len(merged)}개)")
 
 def clean_low_score(results):
-    """ 재평가 결과에서 점수 >= 70인 항목은 low_score.json에서 제거하고 해소된 항목 추적 """
     if not os.path.exists(LOW_SCORE_FILE):
         return []
 
     with open(LOW_SCORE_FILE, "r", encoding="utf-8") as f:
         existing = json.load(f)
 
-    remaining = []
-    resolved_items = []
-
+    remaining, resolved_items = [], []
     for item in existing:
         q_key = normalize_q(item["question"])
         match = next((r for r in results if normalize_q(r["question"]) == q_key), None)
@@ -145,14 +192,14 @@ def clean_low_score(results):
                 "improvement": match["llm_judge_score"] - item.get("llm_judge_score", 0)
             }
             resolved_items.append(resolved_item)
-            print(f"✅ 개선됨 → low_score.json에서 제거: {item['question']} ({item.get('llm_judge_score', 0):.1f} → {match['llm_judge_score']:.1f})")
-            continue
-        remaining.append(item)
+            print(f"✅ 개선됨 → 제거: {item['question']} ({item.get('llm_judge_score', 0):.1f} → {match['llm_judge_score']:.1f})")
+        else:
+            remaining.append(item)
 
     with open(LOW_SCORE_FILE, "w", encoding="utf-8") as f:
         json.dump(remaining, f, ensure_ascii=False, indent=2)
 
-    print(f"🧹 low_score.json 정리 완료 (남은 항목 {len(remaining)}개, 해소된 항목 {len(resolved_items)}개)")
+    print(f"🧹 정리 완료 (남음 {len(remaining)}개, 해소 {len(resolved_items)}개)")
     return resolved_items
 
 # ================================
@@ -171,15 +218,17 @@ def run_evaluation(eval_data):
         print(f"✅ 기대 답변: {expected}")
 
         start = time.perf_counter()
-        response = "".join(get_ai_response(question, session_id="eval"))
+        # ✅ 스트림 안전 수집 + 폴백
+        response = safe_collect_response_from_stream(question, session_id="eval", retries=1)
         elapsed = time.perf_counter() - start
 
-        print(f"🤖 모델 답변: {response}")
+        # 비어있어도 전체 평가는 계속 진행 (0점 처리)
+        print(f"🤖 모델 답변: {response if response else '[EMPTY RESPONSE]'}")
 
-        sim_score = similarity_score(expected, response)
+        sim_score = similarity_score(expected, response) if response else 0.0
         print(f"📊 유사도 점수: {sim_score:.2f}")
 
-        judge_score = llm_judge_score(expected, response)
+        judge_score = llm_judge_score(expected, response) if response else 0.0
         print(f"🧑‍⚖️ LLM Judge 점수: {judge_score:.2f}")
 
         result_item = {
@@ -195,14 +244,14 @@ def run_evaluation(eval_data):
         if judge_score < LOW_SCORE_THRESHOLD:
             low_score_logs.append(result_item)
 
-    # 점수 낮은 QA 로그 저장 (이번 실행만 기록)
+    # 이번 실행의 low score만 따로 저장
     if low_score_logs:
         os.makedirs(LOG_LOW_SCORE_DIR, exist_ok=True)
         today = datetime.now().strftime("%Y%m%d_%H%M%S")
         low_file = os.path.join(LOG_LOW_SCORE_DIR, f"low_score_{today}.json")
         with open(low_file, "w", encoding="utf-8") as f:
             json.dump(low_score_logs, f, ensure_ascii=False, indent=2)
-        print(f"⚠️ 낮은 점수 QA {len(low_score_logs)}개 저장됨 → {low_file}")
+        print(f"⚠️ 낮은 점수 QA {len(low_score_logs)}개 저장 → {low_file}")
 
     return results, low_score_logs, low_file
 
@@ -224,7 +273,7 @@ if __name__ == "__main__":
 
     if not eval_data:
         print("❌ 평가할 데이터가 없습니다.")
-        exit(1)
+        sys.exit(1)
 
     print(f"🚀 총 {len(eval_data)}개 질문에 대해 평가 시작...")
 
@@ -257,7 +306,7 @@ if __name__ == "__main__":
 
         mlflow.log_artifact(out_file)
 
-        # ✅ 이번 실행에서 생성된 low_score 파일만 업로드
+        # 이번 실행에서 생성된 low_score 파일만 업로드
         if low_file:
             mlflow.log_artifact(low_file)
             print(f"⚠️ 이번 검사 low_score 로그 업로드 완료 → {low_file}")
@@ -271,6 +320,6 @@ if __name__ == "__main__":
 
     print("📊 MLflow에 평가 결과 기록 완료!")
 
-    # ✅ 인덱스 재생성 (low_score 반영)
+    # 인덱스 재생성 (low_score 반영)
     subprocess.run([sys.executable, "-m", "pipelines.01_ingest"], check=True)
     print("🔄 인덱스 재생성 완료 (low_score 반영)")
