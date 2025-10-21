@@ -48,8 +48,8 @@ async def chat(message: str = Form(...), session_id: str = Form(None)):
 
 # 🔎 호출 테스트용 API (전체 모아서 반환)
 @app.post("/chat-test")
-async def chat_test(message: str = Form(...)):
-    ai_response_generator = get_ai_response(message)
+async def chat_test(message: str = Form(...), session_id: str = Form("test-session")):
+    ai_response_generator = get_ai_response(message, session_id=session_id)
     chunks = []
     for chunk in ai_response_generator:
         chunks.append(chunk)
