@@ -37,6 +37,7 @@ TOP_K           = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR      = os.getenv("VECTOR_DIR", "vectorstore")
 MENU_FILE_PATH  = os.getenv("MENU_FILE_PATH", "docs/menus/menus.txt")
 META_PATH       = Path("data/artifacts/index_meta.json")
+USE_HYDE        = os.getenv("USE_HYDE", "true").lower() == "true"
 
 # =========================================
 # 세션 관리
@@ -90,6 +91,10 @@ _cached_rag_chain = None
 _cached_vectorstore = None
 _cached_fingerprint = None
 _cached_menu_dict = None
+_cached_hyde_chain_simple = None
+_cached_hyde_chain_detailed = None
+_cached_rag_chain_simple = None
+_cached_rag_chain_detailed = None
 
 # =========================================
 # 임베딩 & 벡터스토어
@@ -146,6 +151,8 @@ def get_llm():
             base_url=VLLM_BASE_URL,
             api_key=OPENAI_API_KEY,
             model=MODEL_LLM,
+            timeout=120.0,  # 타임아웃 120초로 증가 (긴 응답 대응)
+            max_retries=2,  # 실패 시 2번까지 재시도
         )
     return _cached_llm
 
@@ -252,12 +259,42 @@ def get_history_retriever():
     ])
     return create_history_aware_retriever(llm, retriever, prompt)
 
-def get_rag_chain():
-    global _cached_rag_chain
-    if _cached_rag_chain:
-        return _cached_rag_chain
+def _get_simple_prompt():
+    """단순 질문용 프롬프트 (간단한 답변만)"""
+    system_prompt = (
+        """
+        당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.
+        사용자의 질문에 대해 문서 기반으로 **간단하고 명확하게** 답변하세요.
 
-    llm = get_llm()
+        답변 규칙:
+        - 질문에 대한 핵심 정보만 간결하게 제공하세요
+        - 불필요한 섹션 구조(### 알려드릴게요 등)는 사용하지 마세요
+        - 전화번호, 주소, 이메일 등은 그대로 제공하세요
+        - 1-3문장 이내로 간단히 답변하세요
+        - 출처가 있다면 간단히 표기하세요
+
+        예시:
+        질문: 고객센터 전화번호 알려줘
+        답변: 고객센터 전화번호는 1588-1234입니다.
+
+        질문: 영업시간은?
+        답변: 평일 오전 9시부터 오후 6시까지입니다.
+
+        ✅ 문서에 정보가 없는 경우:
+        - '죄송합니다. 해당 정보를 찾을 수 없습니다. XpERP 관련 다른 질문이 있으시면 말씀해주세요.'
+
+         {context}
+        """
+    )
+
+    return ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}")
+    ])
+
+def _get_detailed_prompt():
+    """상세 질문용 프롬프트 (템플릿 기반 답변)"""
     examples = [
         {"input": ex.get("input", ""), "answer": re.sub(r"\(출처:[^)]+\)", "", ex.get("answer", ""))}
         for ex in answer_examples
@@ -324,64 +361,339 @@ def get_rag_chain():
             """
     )
 
-    qa_prompt = ChatPromptTemplate.from_messages([
+    return ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         few_shot,
         MessagesPlaceholder("chat_history"),
         ("human", "{input}")
     ])
 
-    retriever = get_history_retriever()
-    chain = create_stuff_documents_chain(llm, qa_prompt)
-    rag_chain = create_retrieval_chain(retriever, chain)
+def _get_qa_prompt(question_type: str = "detailed"):
+    """질문 유형에 따라 적절한 프롬프트 반환"""
+    if question_type == "simple":
+        return _get_simple_prompt()
+    else:
+        return _get_detailed_prompt()
 
-    _cached_rag_chain = RunnableWithMessageHistory(
-        rag_chain,
-        get_session_history,
-        input_messages_key="input",
-        history_messages_key="chat_history",
-        output_messages_key="answer",
-    ).pick("answer")
+def get_hyde_chain(question_type: str = "detailed"):
+    """HyDE 전용 캐시된 chain (검색 결과를 직접 전달)"""
+    global _cached_hyde_chain_simple, _cached_hyde_chain_detailed
 
-    return _cached_rag_chain
+    if question_type == "simple":
+        if _cached_hyde_chain_simple:
+            return _cached_hyde_chain_simple
+        llm = get_llm()
+        qa_prompt = _get_qa_prompt("simple")
+        _cached_hyde_chain_simple = create_stuff_documents_chain(llm, qa_prompt)
+        print("[INFO] HyDE chain (simple) 캐시 생성 완료")
+        return _cached_hyde_chain_simple
+    else:
+        if _cached_hyde_chain_detailed:
+            return _cached_hyde_chain_detailed
+        llm = get_llm()
+        qa_prompt = _get_qa_prompt("detailed")
+        _cached_hyde_chain_detailed = create_stuff_documents_chain(llm, qa_prompt)
+        print("[INFO] HyDE chain (detailed) 캐시 생성 완료")
+        return _cached_hyde_chain_detailed
+
+def get_rag_chain(question_type: str = "detailed"):
+    global _cached_rag_chain_simple, _cached_rag_chain_detailed
+
+    if question_type == "simple":
+        if _cached_rag_chain_simple:
+            return _cached_rag_chain_simple
+        llm = get_llm()
+        qa_prompt = _get_qa_prompt("simple")
+        retriever = get_history_retriever()
+        chain = create_stuff_documents_chain(llm, qa_prompt)
+        rag_chain = create_retrieval_chain(retriever, chain)
+        _cached_rag_chain_simple = RunnableWithMessageHistory(
+            rag_chain,
+            get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+            output_messages_key="answer",
+        ).pick("answer")
+        print("[INFO] RAG chain (simple) 캐시 생성 완료")
+        return _cached_rag_chain_simple
+    else:
+        if _cached_rag_chain_detailed:
+            return _cached_rag_chain_detailed
+        llm = get_llm()
+        qa_prompt = _get_qa_prompt("detailed")
+        retriever = get_history_retriever()
+        chain = create_stuff_documents_chain(llm, qa_prompt)
+        rag_chain = create_retrieval_chain(retriever, chain)
+        _cached_rag_chain_detailed = RunnableWithMessageHistory(
+            rag_chain,
+            get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+            output_messages_key="answer",
+        ).pick("answer")
+        print("[INFO] RAG chain (detailed) 캐시 생성 완료")
+        return _cached_rag_chain_detailed
+
+# =========================================
+# 질문 유형 분류
+# =========================================
+def classify_question_type(question: str) -> str:
+    """
+    질문 유형을 분류
+    - 'simple': 단순 사실 확인 질문 (전화번호, 주소, 간단한 정보 조회만)
+    - 'detailed': 상세 설명이 필요한 질문 (절차, 방법, 오류 해결)
+    """
+    # ✅ 상세 질문 패턴 먼저 체크 (우선순위)
+    detailed_patterns = [
+        r"어떻게|방법|절차|어찌",
+        r"왜|이유|원인",
+        r"안.*돼|안.*되|오류|에러|문제|안.*나와",
+        r"어디서.*하|어떻게.*하|어디.*입력|어디.*등록",
+        r"중간정산|계산|입력|등록|수정|삭제|조회|확인.*하|설정",
+        r"~하려면|~하는.*방법|~할.*때",
+    ]
+
+    for pattern in detailed_patterns:
+        if re.search(pattern, question):
+            print(f"[CLASSIFY] 상세 질문 감지: {pattern}")
+            return "detailed"
+
+    # ✅ 단순 질문 패턴 (조회성 키워드와 함께 있을 때만)
+    simple_patterns = [
+        r"(전화|연락).*번호.*(알려|뭐|몇|무엇)",  # 전화번호 알려줘
+        r"(이메일|메일).*(알려|뭐|무엇)",  # 이메일 알려줘
+        r"^(언제|어디|누구|몇.*시)$",  # 단독 의문사
+        r"^.{1,8}$",  # 8글자 이하 매우 짧은 질문
+        r"(고객|상담).*센터.*(번호|연락)",  # 고객센터 번호
+    ]
+
+    for pattern in simple_patterns:
+        if re.search(pattern, question):
+            print(f"[CLASSIFY] 단순 질문 감지: {pattern}")
+            return "simple"
+
+    # 기본값: 중간 길이 이상은 상세 질문으로 처리
+    if len(question) >= 12:
+        print(f"[CLASSIFY] 중간 길이 질문, 상세 답변 (len={len(question)})")
+        return "detailed"
+
+    print(f"[CLASSIFY] 기본값, 단순 답변")
+    return "simple"
+
+# =========================================
+# HyDE (Hypothetical Document Embeddings)
+# =========================================
+def should_use_hyde(question: str) -> bool:
+    """
+    HyDE를 사용할지 판단
+    - 간단한 키워드 질문은 HyDE 불필요
+    - 복잡하거나 모호한 질문은 HyDE 사용
+    """
+    # 간단한 키워드 질문 패턴 (HyDE 불필요)
+    simple_patterns = [
+        r"전화번호",
+        r"고객센터",
+        r"문의.*어디",
+        r"\d{3,4}-\d{4}",  # 전화번호 포함
+        r"^.{1,5}$",  # 5글자 이하 짧은 질문
+    ]
+
+    for pattern in simple_patterns:
+        if re.search(pattern, question):
+            print(f"[HyDE] 간단한 질문 감지, HyDE 스킵: {pattern}")
+            return False
+
+    # 복잡한 질문 패턴 (HyDE 사용)
+    complex_patterns = [
+        r"어떻게|방법|어디서|왜|이유",  # How, Why 질문
+        r"안.*돼|오류|에러|문제",  # 문제/오류 관련
+        r".*는.*는",  # 복합 질문 ("이거는 저거는")
+    ]
+
+    for pattern in complex_patterns:
+        if re.search(pattern, question):
+            print(f"[HyDE] 복잡한 질문 감지, HyDE 사용: {pattern}")
+            return True
+
+    # 기본값: 중간 길이 질문은 HyDE 사용
+    if len(question) >= 10:
+        print(f"[HyDE] 중간 길이 질문, HyDE 사용 (len={len(question)})")
+        return True
+
+    print(f"[HyDE] 기본값, HyDE 스킵")
+    return False
+
+def hyde_transform(question: str, max_retries: int = 2) -> str:
+    """
+    질문을 가상의 답변으로 변환 (재시도 로직 포함)
+    """
+    llm = get_llm()
+
+    prompt = f"""
+    당신은 Xperp 프로그램 전문가입니다.
+    다음 질문에 대한 답변을 **상상해서** 작성하세요.
+
+    중요 규칙:
+    - 실제로 정확한 정보가 아니어도 괜찮습니다
+    - Xperp 매뉴얼에 있을 법한 답변의 "형식과 스타일"만 맞추면 됩니다
+    - 메뉴 경로, 절차, 주의사항 등을 포함하여 자연스럽게 작성하세요
+    - 100-200단어 정도로 작성하세요
+
+    질문: {question}
+
+    가상 답변:
+    """.strip()
+
+    for attempt in range(max_retries):
+        try:
+            start = time.perf_counter()
+            result = llm.invoke(prompt)
+            hypothetical_answer = result.content
+            elapsed = time.perf_counter() - start
+
+            print(f"[HyDE] 가상 답변 생성 완료 ({elapsed:.2f}초)")
+            print(f"[HyDE] 변환 결과 (앞 100자): {hypothetical_answer[:100]}...")
+
+            return hypothetical_answer
+
+        except Exception as e:
+            error_type = type(e).__name__
+            print(f"[HyDE] 변환 실패 (시도 {attempt + 1}/{max_retries}): {error_type} - {str(e)[:100]}")
+
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # 지수 백오프: 1초, 2초
+                print(f"[HyDE] {wait_time}초 후 재시도...")
+                time.sleep(wait_time)
+            else:
+                print(f"[HyDE] 최대 재시도 초과, 원본 질문 사용")
+                return question  # 모든 재시도 실패 시 원본 질문 반환
+
+    return question
 
 # =========================================
 # 최종 응답 함수
 # =========================================
-def get_ai_response(user_message: str, session_id: str):
+def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if not session_id:
         raise ValueError("session_id is required.")
+
+    # HyDE 기본값: 환경변수 사용
+    if use_hyde is None:
+        use_hyde = USE_HYDE
+
+    print(f"[INFO] HyDE 모드: {'ON' if use_hyde else 'OFF'}")
 
     # ✅ 세션 강제 초기화: 같은 session_id라도 항상 새로운 히스토리로 시작
 #     session_store.store.pop(session_id, None)
 #     session_store.session_timestamps.pop(session_id, None)
 
-    rag_chain = get_rag_chain()
-
+    # 1. 질문 보정
     try:
         effective_message = process_question(user_message)
+        print(f"[INFO] 보정된 질문: {effective_message}")
     except Exception as e:
         print(f"[WARN] 질문 보정 실패: {e}")
         effective_message = user_message
 
-#     yield f"🔧 보정된 질문: {effective_message}\n\n"
+    # 1.5. 질문 유형 분류 (단순 vs 상세)
+    question_type = classify_question_type(effective_message)
+    print(f"[INFO] 질문 유형: {question_type}")
 
+    # 2. HyDE 적용 여부 판단 및 실행
+    search_query = effective_message  # 기본값: 보정된 질문으로 검색
+
+    if use_hyde and should_use_hyde(effective_message):
+        try:
+            # HyDE: 가상 답변 생성
+            hypothetical_answer = hyde_transform(effective_message)
+            search_query = hypothetical_answer  # 가상 답변으로 검색
+
+            # 디버깅용 출력 (필요시 주석 해제)
+            # yield f"🔍 HyDE 변환됨\n가상 답변: {hypothetical_answer[:150]}...\n\n"
+
+        except Exception as e:
+            print(f"[WARN] HyDE 변환 실패, 원본 질문 사용: {e}")
+            search_query = effective_message
+
+    # 3. RAG 체인 실행
+    # HyDE를 사용한 경우, 검색은 가상 답변으로 하되 최종 응답은 원본 질문 기반
     start = time.perf_counter()
-    stream = rag_chain.stream(
-        {"input": effective_message},
-        config={"configurable": {"session_id": session_id}},
-    )
-    for chunk in stream:
-        yield chunk
 
-    yield f"\n\n⏱ 소요시간: {time.perf_counter() - start:.2f}초"
+    if use_hyde and search_query != effective_message:
+        # HyDE 모드: 가상 답변으로 1회 검색 → 캐시된 chain으로 답변 생성
+        retriever = get_retriever()
+        docs = retriever.get_relevant_documents(search_query)
+
+        print(f"[HyDE] 검색된 문서 수: {len(docs)}")
+        for i, doc in enumerate(docs):
+            source = doc.metadata.get("source", "알 수 없음")
+            print(f"[HyDE] 문서 {i+1}: {source}")
+
+        # 캐시된 HyDE chain 사용 (질문 유형에 따라 선택)
+        hyde_chain = get_hyde_chain(question_type)
+        chat_history = get_session_history(session_id)
+
+        # 스트리밍 답변 생성
+        stream = hyde_chain.stream({
+            "input": effective_message,  # 원본 질문
+            "context": docs,  # 검색된 문서
+            "chat_history": chat_history.messages
+        })
+    else:
+        # 일반 모드 (질문 유형에 따라 선택)
+        rag_chain = get_rag_chain(question_type)
+        stream = rag_chain.stream(
+            {"input": effective_message},
+            config={"configurable": {"session_id": session_id}},
+        )
+
+    # 스트림 처리 및 대화 이력 저장 (에러 핸들링 강화)
+    full_response = ""
+    try:
+        for chunk in stream:
+            full_response += chunk
+            yield chunk
+
+        # HyDE 모드일 때 대화 이력 수동 저장
+        if use_hyde and search_query != effective_message:
+            chat_history = get_session_history(session_id)
+            chat_history.add_user_message(effective_message)
+            chat_history.add_ai_message(full_response)
+
+        elapsed = time.perf_counter() - start
+        hyde_marker = " (HyDE 적용)" if (use_hyde and search_query != effective_message) else ""
+        yield f"\n\n⏱ 소요시간: {elapsed:.2f}초{hyde_marker}"
+
+    except Exception as e:
+        error_type = type(e).__name__
+        error_msg = str(e)[:200]
+        print(f"[ERROR] 스트리밍 중 오류 발생: {error_type} - {error_msg}")
+
+        # 부분 응답이라도 있으면 저장
+        if full_response:
+            if use_hyde and search_query != effective_message:
+                chat_history = get_session_history(session_id)
+                chat_history.add_user_message(effective_message)
+                chat_history.add_ai_message(full_response)
+            yield f"\n\n⚠️ 응답 중 연결이 끊어졌습니다. 부분 응답만 표시됩니다."
+        else:
+            yield f"\n\n❌ 오류가 발생했습니다: {error_type}\n서버 연결을 확인하고 다시 시도해주세요."
+
+        elapsed = time.perf_counter() - start
+        yield f"\n⏱ 소요시간: {elapsed:.2f}초"
 
 # =========================================
 # 유틸
 # =========================================
 def cleanup_resources():
     global _cached_embeddings, _cached_retriever, _cached_llm, _cached_rag_chain, _cached_fingerprint
+    global _cached_hyde_chain_simple, _cached_hyde_chain_detailed
+    global _cached_rag_chain_simple, _cached_rag_chain_detailed
+
     _cached_embeddings = _cached_retriever = _cached_llm = _cached_rag_chain = _cached_fingerprint = None
+    _cached_hyde_chain_simple = _cached_hyde_chain_detailed = None
+    _cached_rag_chain_simple = _cached_rag_chain_detailed = None
+
     session_store.store.clear()
     session_store.session_timestamps.clear()
     print("[INFO] 모든 캐시 및 세션 리소스 정리 완료")
@@ -392,6 +704,10 @@ def get_cache_info():
         "retriever_cached": _cached_retriever is not None,
         "llm_cached": _cached_llm is not None,
         "rag_chain_cached": _cached_rag_chain is not None,
+        "hyde_chain_simple_cached": _cached_hyde_chain_simple is not None,
+        "hyde_chain_detailed_cached": _cached_hyde_chain_detailed is not None,
+        "rag_chain_simple_cached": _cached_rag_chain_simple is not None,
+        "rag_chain_detailed_cached": _cached_rag_chain_detailed is not None,
         "fingerprint": _cached_fingerprint,
         "active_sessions": len(session_store.store)
     }
