@@ -21,6 +21,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+from langchain_core.documents import Document
 
 from config import answer_examples
 
@@ -38,6 +39,8 @@ VECTOR_DIR      = os.getenv("VECTOR_DIR", "vectorstore")
 MENU_FILE_PATH  = os.getenv("MENU_FILE_PATH", "docs/menus/menus.txt")
 META_PATH       = Path("data/artifacts/index_meta.json")
 USE_HYDE        = os.getenv("USE_HYDE", "true").lower() == "true"
+USE_RERANK      = os.getenv("USE_RERANK", "true").lower() == "true"
+RERANK_TOP_K    = int(os.getenv("RERANK_TOP_K", "10"))  # rerank 전 검색할 문서 수
 
 # =========================================
 # 세션 관리
@@ -95,6 +98,60 @@ _cached_hyde_chain_simple = None
 _cached_hyde_chain_detailed = None
 _cached_rag_chain_simple = None
 _cached_rag_chain_detailed = None
+_cached_reranker = None
+
+# =========================================
+# Reranker (재순위화)
+# =========================================
+class CrossEncoderReranker:
+    """Cross-encoder 기반 문서 재순위화"""
+
+    def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3", top_k: int = 4):
+        self.model_name = model_name
+        self.top_k = top_k
+        self.model = None
+
+    def _load_model(self):
+        """모델 로드 (최초 1회만)"""
+        if self.model is None:
+            try:
+                from sentence_transformers import CrossEncoder
+                self.model = CrossEncoder(self.model_name, max_length=512)
+            except ImportError:
+                print("[ERROR] sentence-transformers 미설치. pip install sentence-transformers 필요")
+                raise
+            except Exception as e:
+                print(f"[ERROR] Reranker 모델 로드 실패: {e}")
+                raise
+
+    def rerank_documents(self, query: str, documents: List[Document]) -> List[Document]:
+        """문서를 재순위화하여 상위 k개 반환"""
+        if not documents:
+            return documents
+
+        self._load_model()
+
+        # 질문-문서 쌍 생성
+        pairs = [[query, doc.page_content] for doc in documents]
+
+        # 점수 계산
+        scores = self.model.predict(pairs)
+
+        # 점수와 문서 결합 후 정렬
+        doc_score_pairs = list(zip(documents, scores))
+        doc_score_pairs.sort(key=lambda x: x[1], reverse=True)
+
+        # 상위 k개 선택
+        reranked_docs = [doc for doc, score in doc_score_pairs[:self.top_k]]
+
+        return reranked_docs
+
+def get_reranker():
+    """Reranker 인스턴스 반환 (캐시)"""
+    global _cached_reranker
+    if _cached_reranker is None:
+        _cached_reranker = CrossEncoderReranker(top_k=TOP_K)
+    return _cached_reranker
 
 # =========================================
 # 임베딩 & 벡터스토어
@@ -102,12 +159,10 @@ _cached_rag_chain_detailed = None
 def get_embeddings():
     global _cached_embeddings
     if _cached_embeddings is None:
-        start = time.perf_counter()
         _cached_embeddings = HuggingFaceBgeEmbeddings(
             model_name="BAAI/bge-m3",
             encode_kwargs={"normalize_embeddings": True}
         )
-        print(f"[TIMER] get_embeddings 로드 완료 ({(time.perf_counter() - start) * 1000:.2f} ms)")
     return _cached_embeddings
 
 def _load_metadata():
@@ -122,13 +177,39 @@ def _load_metadata():
 def _load_fingerprint():
     return _load_metadata().get("docs_fingerprint")
 
+class RerankRetriever:
+    """Reranking을 적용하는 Retriever 래퍼"""
+
+    def __init__(self, base_retriever, reranker, search_k: int):
+        self.base_retriever = base_retriever
+        self.reranker = reranker
+        self.search_k = search_k
+
+    def get_relevant_documents(self, query: str) -> List[Document]:
+        """검색 후 재순위화"""
+        # 1차 검색 (더 많은 문서)
+        docs = self.base_retriever.get_relevant_documents(query)
+
+        # Reranking 적용
+        if self.reranker and len(docs) > 0:
+            docs = self.reranker.rerank_documents(query, docs)
+
+        return docs
+
+    def invoke(self, input_data):
+        """LangChain runnable 인터페이스"""
+        if isinstance(input_data, str):
+            return self.get_relevant_documents(input_data)
+        elif isinstance(input_data, dict) and "input" in input_data:
+            return self.get_relevant_documents(input_data["input"])
+        return self.get_relevant_documents(str(input_data))
+
 def get_retriever():
     global _cached_retriever, _cached_vectorstore, _cached_fingerprint
     os.makedirs(VECTOR_DIR, exist_ok=True)
     current_fp = _load_fingerprint()
 
     if _cached_retriever is None or _cached_fingerprint != current_fp:
-        print(f"[INFO] retriever reload (old={_cached_fingerprint}, new={current_fp})")
         index_path = os.path.join(VECTOR_DIR, "index.faiss")
         if not os.path.exists(index_path):
             raise FileNotFoundError(f"❌ 벡터스토어 없음: {index_path}. 01_ingest.py 실행 필요")
@@ -137,7 +218,15 @@ def get_retriever():
         _cached_vectorstore = FAISS.load_local(
             VECTOR_DIR, embeddings, allow_dangerous_deserialization=True
         )
-        _cached_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+
+        # Rerank 사용 여부에 따라 retriever 설정
+        if USE_RERANK:
+            base_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': RERANK_TOP_K})
+            reranker = get_reranker()
+            _cached_retriever = RerankRetriever(base_retriever, reranker, RERANK_TOP_K)
+        else:
+            _cached_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+
         _cached_fingerprint = current_fp
     return _cached_retriever
 
@@ -385,7 +474,6 @@ def get_hyde_chain(question_type: str = "detailed"):
         llm = get_llm()
         qa_prompt = _get_qa_prompt("simple")
         _cached_hyde_chain_simple = create_stuff_documents_chain(llm, qa_prompt)
-        print("[INFO] HyDE chain (simple) 캐시 생성 완료")
         return _cached_hyde_chain_simple
     else:
         if _cached_hyde_chain_detailed:
@@ -393,7 +481,6 @@ def get_hyde_chain(question_type: str = "detailed"):
         llm = get_llm()
         qa_prompt = _get_qa_prompt("detailed")
         _cached_hyde_chain_detailed = create_stuff_documents_chain(llm, qa_prompt)
-        print("[INFO] HyDE chain (detailed) 캐시 생성 완료")
         return _cached_hyde_chain_detailed
 
 def get_rag_chain(question_type: str = "detailed"):
@@ -414,7 +501,6 @@ def get_rag_chain(question_type: str = "detailed"):
             history_messages_key="chat_history",
             output_messages_key="answer",
         ).pick("answer")
-        print("[INFO] RAG chain (simple) 캐시 생성 완료")
         return _cached_rag_chain_simple
     else:
         if _cached_rag_chain_detailed:
@@ -431,7 +517,6 @@ def get_rag_chain(question_type: str = "detailed"):
             history_messages_key="chat_history",
             output_messages_key="answer",
         ).pick("answer")
-        print("[INFO] RAG chain (detailed) 캐시 생성 완료")
         return _cached_rag_chain_detailed
 
 # =========================================
@@ -455,7 +540,6 @@ def classify_question_type(question: str) -> str:
 
     for pattern in detailed_patterns:
         if re.search(pattern, question):
-            print(f"[CLASSIFY] 상세 질문 감지: {pattern}")
             return "detailed"
 
     # ✅ 단순 질문 패턴 (조회성 키워드와 함께 있을 때만)
@@ -469,15 +553,12 @@ def classify_question_type(question: str) -> str:
 
     for pattern in simple_patterns:
         if re.search(pattern, question):
-            print(f"[CLASSIFY] 단순 질문 감지: {pattern}")
             return "simple"
 
     # 기본값: 중간 길이 이상은 상세 질문으로 처리
     if len(question) >= 12:
-        print(f"[CLASSIFY] 중간 길이 질문, 상세 답변 (len={len(question)})")
         return "detailed"
 
-    print(f"[CLASSIFY] 기본값, 단순 답변")
     return "simple"
 
 # =========================================
@@ -500,7 +581,6 @@ def should_use_hyde(question: str) -> bool:
 
     for pattern in simple_patterns:
         if re.search(pattern, question):
-            print(f"[HyDE] 간단한 질문 감지, HyDE 스킵: {pattern}")
             return False
 
     # 복잡한 질문 패턴 (HyDE 사용)
@@ -512,15 +592,12 @@ def should_use_hyde(question: str) -> bool:
 
     for pattern in complex_patterns:
         if re.search(pattern, question):
-            print(f"[HyDE] 복잡한 질문 감지, HyDE 사용: {pattern}")
             return True
 
     # 기본값: 중간 길이 질문은 HyDE 사용
     if len(question) >= 10:
-        print(f"[HyDE] 중간 길이 질문, HyDE 사용 (len={len(question)})")
         return True
 
-    print(f"[HyDE] 기본값, HyDE 스킵")
     return False
 
 def hyde_transform(question: str, max_retries: int = 2) -> str:
@@ -546,26 +623,15 @@ def hyde_transform(question: str, max_retries: int = 2) -> str:
 
     for attempt in range(max_retries):
         try:
-            start = time.perf_counter()
             result = llm.invoke(prompt)
             hypothetical_answer = result.content
-            elapsed = time.perf_counter() - start
-
-            print(f"[HyDE] 가상 답변 생성 완료 ({elapsed:.2f}초)")
-            print(f"[HyDE] 변환 결과 (앞 100자): {hypothetical_answer[:100]}...")
-
             return hypothetical_answer
 
         except Exception as e:
-            error_type = type(e).__name__
-            print(f"[HyDE] 변환 실패 (시도 {attempt + 1}/{max_retries}): {error_type} - {str(e)[:100]}")
-
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt  # 지수 백오프: 1초, 2초
-                print(f"[HyDE] {wait_time}초 후 재시도...")
                 time.sleep(wait_time)
             else:
-                print(f"[HyDE] 최대 재시도 초과, 원본 질문 사용")
                 return question  # 모든 재시도 실패 시 원본 질문 반환
 
     return question
@@ -581,23 +647,14 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if use_hyde is None:
         use_hyde = USE_HYDE
 
-    print(f"[INFO] HyDE 모드: {'ON' if use_hyde else 'OFF'}")
-
-    # ✅ 세션 강제 초기화: 같은 session_id라도 항상 새로운 히스토리로 시작
-#     session_store.store.pop(session_id, None)
-#     session_store.session_timestamps.pop(session_id, None)
-
     # 1. 질문 보정
     try:
         effective_message = process_question(user_message)
-        print(f"[INFO] 보정된 질문: {effective_message}")
     except Exception as e:
-        print(f"[WARN] 질문 보정 실패: {e}")
         effective_message = user_message
 
     # 1.5. 질문 유형 분류 (단순 vs 상세)
     question_type = classify_question_type(effective_message)
-    print(f"[INFO] 질문 유형: {question_type}")
 
     # 2. HyDE 적용 여부 판단 및 실행
     search_query = effective_message  # 기본값: 보정된 질문으로 검색
@@ -623,11 +680,6 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         # HyDE 모드: 가상 답변으로 1회 검색 → 캐시된 chain으로 답변 생성
         retriever = get_retriever()
         docs = retriever.get_relevant_documents(search_query)
-
-        print(f"[HyDE] 검색된 문서 수: {len(docs)}")
-        for i, doc in enumerate(docs):
-            source = doc.metadata.get("source", "알 수 없음")
-            print(f"[HyDE] 문서 {i+1}: {source}")
 
         # 캐시된 HyDE chain 사용 (질문 유형에 따라 선택)
         hyde_chain = get_hyde_chain(question_type)
@@ -688,11 +740,12 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
 def cleanup_resources():
     global _cached_embeddings, _cached_retriever, _cached_llm, _cached_rag_chain, _cached_fingerprint
     global _cached_hyde_chain_simple, _cached_hyde_chain_detailed
-    global _cached_rag_chain_simple, _cached_rag_chain_detailed
+    global _cached_rag_chain_simple, _cached_rag_chain_detailed, _cached_reranker
 
     _cached_embeddings = _cached_retriever = _cached_llm = _cached_rag_chain = _cached_fingerprint = None
     _cached_hyde_chain_simple = _cached_hyde_chain_detailed = None
     _cached_rag_chain_simple = _cached_rag_chain_detailed = None
+    _cached_reranker = None
 
     session_store.store.clear()
     session_store.session_timestamps.clear()
@@ -708,6 +761,8 @@ def get_cache_info():
         "hyde_chain_detailed_cached": _cached_hyde_chain_detailed is not None,
         "rag_chain_simple_cached": _cached_rag_chain_simple is not None,
         "rag_chain_detailed_cached": _cached_rag_chain_detailed is not None,
+        "reranker_cached": _cached_reranker is not None,
+        "use_rerank": USE_RERANK,
         "fingerprint": _cached_fingerprint,
         "active_sessions": len(session_store.store)
     }
