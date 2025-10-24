@@ -5,9 +5,10 @@
 # =========================================
 from pathlib import Path
 from collections import OrderedDict
-from typing import List, Dict
+from typing import List, Dict, Optional, Any
 import os, time, re, json
 from functools import wraps
+import asyncio
 
 from dotenv import load_dotenv
 from rapidfuzz import fuzz
@@ -252,14 +253,14 @@ def _load_fingerprint():
 class RerankRetriever(BaseRetriever):
     """Reranking을 적용하는 Retriever 래퍼"""
 
-    base_retriever: object
-    reranker: object
+    base_retriever: Any
+    reranker: Any
     search_k: int
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def _get_relevant_documents(
-        self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
+        self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
     ) -> List[Document]:
         """검색 후 재순위화"""
         # 1차 검색 (더 많은 문서)
@@ -277,6 +278,13 @@ class RerankRetriever(BaseRetriever):
             print(f"[TIMING] 벡터검색: {search_time*1000:.0f}ms")
 
         return docs
+
+    async def _aget_relevant_documents(
+        self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
+    ) -> List[Document]:
+        """비동기 검색 후 재순위화"""
+        # 동기 버전을 비동기로 래핑
+        return await asyncio.to_thread(self._get_relevant_documents, query, run_manager=run_manager)
 
 @log_execution_time
 def get_retriever():
