@@ -7,6 +7,7 @@ from pathlib import Path
 from collections import OrderedDict
 from typing import List, Dict
 import os, time, re, json
+from functools import wraps
 
 from dotenv import load_dotenv
 from rapidfuzz import fuzz
@@ -22,8 +23,25 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
+from pydantic import ConfigDict
 
 from config import answer_examples
+
+# =========================================
+# 함수 실행시간 측정 데코레이터
+# =========================================
+def log_execution_time(func):
+    """함수 실행 시간을 서버 로그로 출력하는 데코레이터"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start_time
+        print(f"[TIMING] {func.__name__}: {elapsed*1000:.0f}ms")
+        return result
+    return wrapper
 
 # =========================================
 # 환경설정 (.env 로드)
@@ -41,6 +59,7 @@ META_PATH       = Path("data/artifacts/index_meta.json")
 USE_HYDE        = os.getenv("USE_HYDE", "true").lower() == "true"
 USE_RERANK      = os.getenv("USE_RERANK", "true").lower() == "true"
 RERANK_TOP_K    = int(os.getenv("RERANK_TOP_K", "10"))  # rerank 전 검색할 문서 수
+MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "10"))  # 대화 이력 최대 메시지 수
 
 # =========================================
 # 세션 관리
@@ -66,7 +85,23 @@ class SessionStore:
 
         self.session_timestamps[session_id] = time.time()
         self.store.move_to_end(session_id)  # LRU 갱신
+
+        # 대화 이력 길이 제한 적용
+        self._trim_history(session_id)
+
         return self.store[session_id]
+
+    def _trim_history(self, session_id: str):
+        """대화 이력을 최근 N개 메시지로 제한"""
+        if session_id in self.store:
+            chat_history = self.store[session_id]
+            messages = chat_history.messages
+
+            if len(messages) > MAX_HISTORY_MESSAGES:
+                # 최근 MAX_HISTORY_MESSAGES개만 유지
+                chat_history.clear()
+                for msg in messages[-MAX_HISTORY_MESSAGES:]:
+                    chat_history.add_message(msg)
 
     def _cleanup_old_sessions(self):
         current_time = time.time()
@@ -110,13 +145,34 @@ class CrossEncoderReranker:
         self.model_name = model_name
         self.top_k = top_k
         self.model = None
+        self.device = self._get_device()
+
+    def _get_device(self):
+        """사용 가능한 디바이스 확인"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                print(f"[INFO] GPU 감지됨: {torch.cuda.get_device_name(0)}")
+                return "cuda"
+            else:
+                print("[INFO] GPU 없음, CPU 사용")
+                return "cpu"
+        except ImportError:
+            print("[INFO] PyTorch 없음, CPU 사용")
+            return "cpu"
 
     def _load_model(self):
         """모델 로드 (최초 1회만)"""
         if self.model is None:
             try:
                 from sentence_transformers import CrossEncoder
-                self.model = CrossEncoder(self.model_name, max_length=512)
+                print(f"[INFO] Reranker 모델 로드 중 (device: {self.device})...")
+                self.model = CrossEncoder(
+                    self.model_name,
+                    max_length=512,
+                    device=self.device
+                )
+                print(f"[INFO] Reranker 모델 로드 완료")
             except ImportError:
                 print("[ERROR] sentence-transformers 미설치. pip install sentence-transformers 필요")
                 raise
@@ -134,8 +190,12 @@ class CrossEncoderReranker:
         # 질문-문서 쌍 생성
         pairs = [[query, doc.page_content] for doc in documents]
 
-        # 점수 계산
-        scores = self.model.predict(pairs)
+        # 점수 계산 (배치 크기 지정으로 최적화)
+        scores = self.model.predict(
+            pairs,
+            batch_size=32,  # 배치 크기 증가로 처리 속도 향상
+            show_progress_bar=False
+        )
 
         # 점수와 문서 결합 후 정렬
         doc_score_pairs = list(zip(documents, scores))
@@ -146,6 +206,7 @@ class CrossEncoderReranker:
 
         return reranked_docs
 
+@log_execution_time
 def get_reranker():
     """Reranker 인스턴스 반환 (캐시)"""
     global _cached_reranker
@@ -156,11 +217,22 @@ def get_reranker():
 # =========================================
 # 임베딩 & 벡터스토어
 # =========================================
+@log_execution_time
 def get_embeddings():
     global _cached_embeddings
     if _cached_embeddings is None:
+        # GPU 사용 가능 여부 확인
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"[INFO] 임베딩 모델 device: {device}")
+        except ImportError:
+            device = "cpu"
+            print(f"[INFO] 임베딩 모델 device: {device}")
+
         _cached_embeddings = HuggingFaceBgeEmbeddings(
             model_name="BAAI/bge-m3",
+            model_kwargs={"device": device},
             encode_kwargs={"normalize_embeddings": True}
         )
     return _cached_embeddings
@@ -177,33 +249,36 @@ def _load_metadata():
 def _load_fingerprint():
     return _load_metadata().get("docs_fingerprint")
 
-class RerankRetriever:
+class RerankRetriever(BaseRetriever):
     """Reranking을 적용하는 Retriever 래퍼"""
 
-    def __init__(self, base_retriever, reranker, search_k: int):
-        self.base_retriever = base_retriever
-        self.reranker = reranker
-        self.search_k = search_k
+    base_retriever: object
+    reranker: object
+    search_k: int
 
-    def get_relevant_documents(self, query: str) -> List[Document]:
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
+    ) -> List[Document]:
         """검색 후 재순위화"""
         # 1차 검색 (더 많은 문서)
-        docs = self.base_retriever.get_relevant_documents(query)
+        search_start = time.perf_counter()
+        docs = self.base_retriever.invoke(query)
+        search_time = time.perf_counter() - search_start
 
         # Reranking 적용
         if self.reranker and len(docs) > 0:
+            rerank_start = time.perf_counter()
             docs = self.reranker.rerank_documents(query, docs)
+            rerank_time = time.perf_counter() - rerank_start
+            print(f"[TIMING] 벡터검색: {search_time*1000:.0f}ms, 리랭킹: {rerank_time*1000:.0f}ms")
+        else:
+            print(f"[TIMING] 벡터검색: {search_time*1000:.0f}ms")
 
         return docs
 
-    def invoke(self, input_data):
-        """LangChain runnable 인터페이스"""
-        if isinstance(input_data, str):
-            return self.get_relevant_documents(input_data)
-        elif isinstance(input_data, dict) and "input" in input_data:
-            return self.get_relevant_documents(input_data["input"])
-        return self.get_relevant_documents(str(input_data))
-
+@log_execution_time
 def get_retriever():
     global _cached_retriever, _cached_vectorstore, _cached_fingerprint
     os.makedirs(VECTOR_DIR, exist_ok=True)
@@ -223,7 +298,11 @@ def get_retriever():
         if USE_RERANK:
             base_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': RERANK_TOP_K})
             reranker = get_reranker()
-            _cached_retriever = RerankRetriever(base_retriever, reranker, RERANK_TOP_K)
+            _cached_retriever = RerankRetriever(
+                base_retriever=base_retriever,
+                reranker=reranker,
+                search_k=RERANK_TOP_K
+            )
         else:
             _cached_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': TOP_K})
 
@@ -233,6 +312,7 @@ def get_retriever():
 # =========================================
 # LLM 초기화
 # =========================================
+@log_execution_time
 def get_llm():
     global _cached_llm
     if _cached_llm is None:
@@ -248,6 +328,7 @@ def get_llm():
 # =========================================
 # Dictionary 기반 질문 보정
 # =========================================
+@log_execution_time
 def load_menu_dict(path=MENU_FILE_PATH):
     global _cached_menu_dict
     if _cached_menu_dict is not None:
@@ -309,6 +390,7 @@ def get_dictionary_chain():
     prompt = ChatPromptTemplate.from_template(template)
     return prompt | llm | StrOutputParser()
 
+@log_execution_time
 def process_question(question: str):
     dictionary = load_menu_dict()   # ✅ 최초 1회만 로드, 이후 캐시 사용
     rewritten = rewrite_with_dictionary(question, dictionary)
@@ -331,6 +413,7 @@ def process_question(question: str):
 # =========================================
 # RAG 체인
 # =========================================
+@log_execution_time
 def get_history_retriever():
     llm = get_llm()
     retriever = get_retriever()
@@ -464,6 +547,7 @@ def _get_qa_prompt(question_type: str = "detailed"):
     else:
         return _get_detailed_prompt()
 
+@log_execution_time
 def get_hyde_chain(question_type: str = "detailed"):
     """HyDE 전용 캐시된 chain (검색 결과를 직접 전달)"""
     global _cached_hyde_chain_simple, _cached_hyde_chain_detailed
@@ -483,6 +567,7 @@ def get_hyde_chain(question_type: str = "detailed"):
         _cached_hyde_chain_detailed = create_stuff_documents_chain(llm, qa_prompt)
         return _cached_hyde_chain_detailed
 
+@log_execution_time
 def get_rag_chain(question_type: str = "detailed"):
     global _cached_rag_chain_simple, _cached_rag_chain_detailed
 
@@ -522,6 +607,7 @@ def get_rag_chain(question_type: str = "detailed"):
 # =========================================
 # 질문 유형 분류
 # =========================================
+@log_execution_time
 def classify_question_type(question: str) -> str:
     """
     질문 유형을 분류
@@ -564,6 +650,7 @@ def classify_question_type(question: str) -> str:
 # =========================================
 # HyDE (Hypothetical Document Embeddings)
 # =========================================
+@log_execution_time
 def should_use_hyde(question: str) -> bool:
     """
     HyDE를 사용할지 판단
@@ -600,6 +687,7 @@ def should_use_hyde(question: str) -> bool:
 
     return False
 
+@log_execution_time
 def hyde_transform(question: str, max_retries: int = 2) -> str:
     """
     질문을 가상의 답변으로 변환 (재시도 로직 포함)
@@ -674,12 +762,11 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
 
     # 3. RAG 체인 실행
     # HyDE를 사용한 경우, 검색은 가상 답변으로 하되 최종 응답은 원본 질문 기반
-    start = time.perf_counter()
 
     if use_hyde and search_query != effective_message:
         # HyDE 모드: 가상 답변으로 1회 검색 → 캐시된 chain으로 답변 생성
         retriever = get_retriever()
-        docs = retriever.get_relevant_documents(search_query)
+        docs = retriever.invoke(search_query)
 
         # 캐시된 HyDE chain 사용 (질문 유형에 따라 선택)
         hyde_chain = get_hyde_chain(question_type)
@@ -694,6 +781,7 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     else:
         # 일반 모드 (질문 유형에 따라 선택)
         rag_chain = get_rag_chain(question_type)
+
         stream = rag_chain.stream(
             {"input": effective_message},
             config={"configurable": {"session_id": session_id}},
@@ -712,10 +800,6 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
             chat_history.add_user_message(effective_message)
             chat_history.add_ai_message(full_response)
 
-        elapsed = time.perf_counter() - start
-        hyde_marker = " (HyDE 적용)" if (use_hyde and search_query != effective_message) else ""
-        yield f"\n\n⏱ 소요시간: {elapsed:.2f}초{hyde_marker}"
-
     except Exception as e:
         error_type = type(e).__name__
         error_msg = str(e)[:200]
@@ -730,9 +814,6 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
             yield f"\n\n⚠️ 응답 중 연결이 끊어졌습니다. 부분 응답만 표시됩니다."
         else:
             yield f"\n\n❌ 오류가 발생했습니다: {error_type}\n서버 연결을 확인하고 다시 시도해주세요."
-
-        elapsed = time.perf_counter() - start
-        yield f"\n⏱ 소요시간: {elapsed:.2f}초"
 
 # =========================================
 # 유틸
