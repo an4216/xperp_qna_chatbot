@@ -663,36 +663,35 @@ def should_use_hyde(question: str) -> bool:
     """
     HyDE를 사용할지 판단
     - 간단한 키워드 질문은 HyDE 불필요
-    - 복잡하거나 모호한 질문은 HyDE 사용
+    - 복잡하거나 모호한 질문만 HyDE 사용
     """
-    # 간단한 키워드 질문 패턴 (HyDE 불필요)
+    # 간단한 키워드 질문 패턴 (HyDE 불필요) - 확대
     simple_patterns = [
-        r"전화번호",
-        r"고객센터",
+        r"전화번호|연락처|이메일|주소",
+        r"고객센터|문의처",
         r"문의.*어디",
         r"\d{3,4}-\d{4}",  # 전화번호 포함
-        r"^.{1,5}$",  # 5글자 이하 짧은 질문
+        r"^.{1,8}$",  # 8글자 이하 짧은 질문
+        r"뭐|무엇|누구|언제|어디",  # 단순 의문사
+        r"알려|확인|조회",  # 단순 조회
     ]
 
     for pattern in simple_patterns:
         if re.search(pattern, question):
             return False
 
-    # 복잡한 질문 패턴 (HyDE 사용)
+    # 복잡한 질문 패턴 (HyDE 사용) - 축소
     complex_patterns = [
-        r"어떻게|방법|어디서|왜|이유",  # How, Why 질문
-        r"안.*돼|오류|에러|문제",  # 문제/오류 관련
-        r".*는.*는",  # 복합 질문 ("이거는 저거는")
+        r"어떻게.*하|.*하는.*방법|.*하려면",  # 절차/방법 질문
+        r"왜.*안.*돼|왜.*안.*되|왜.*오류|왜.*에러",  # 오류 원인 질문
+        r".*와.*차이|.*비교|.*다른점",  # 비교 질문
     ]
 
     for pattern in complex_patterns:
         if re.search(pattern, question):
             return True
 
-    # 기본값: 중간 길이 질문은 HyDE 사용
-    if len(question) >= 10:
-        return True
-
+    # 기본값: HyDE 사용 안함 (속도 우선)
     return False
 
 @log_execution_time
@@ -702,24 +701,21 @@ def hyde_transform(question: str, max_retries: int = 2) -> str:
     """
     llm = get_llm()
 
-    prompt = f"""
-    당신은 Xperp 프로그램 전문가입니다.
-    다음 질문에 대한 답변을 **상상해서** 작성하세요.
+    # 간결한 프롬프트로 빠른 생성
+    prompt = f"""Xperp 프로그램 전문가로서 다음 질문에 대한 간단한 가상 답변을 작성하세요.
+실제 정보가 아니어도 괜찮으며, 매뉴얼 형식만 맞추면 됩니다.
 
-    중요 규칙:
-    - 실제로 정확한 정보가 아니어도 괜찮습니다
-    - Xperp 매뉴얼에 있을 법한 답변의 "형식과 스타일"만 맞추면 됩니다
-    - 메뉴 경로, 절차, 주의사항 등을 포함하여 자연스럽게 작성하세요
-    - 100-200단어 정도로 작성하세요
+질문: {question}
 
-    질문: {question}
-
-    가상 답변:
-    """.strip()
+답변:"""
 
     for attempt in range(max_retries):
         try:
-            result = llm.invoke(prompt)
+            result = llm.invoke(
+                prompt,
+                max_tokens=100,  # 토큰 제한으로 빠른 생성
+                temperature=0.3   # 낮은 temperature로 빠른 생성
+            )
             hypothetical_answer = result.content
             return hypothetical_answer
 
