@@ -650,7 +650,7 @@ def classify_question_type(question: str) -> str:
             return "simple"
 
     # 기본값: 중간 길이 이상은 상세 질문으로 처리
-    if len(question) >= 12:
+    if len(question) >= 10:
         return "detailed"
 
     return "simple"
