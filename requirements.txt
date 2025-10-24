@@ -94,6 +94,9 @@ safetensors>=0.4.3
 tokenizers>=0.15.2
 sentencepiece>=0.2.0
 
+# PyTorch (GPU 지원용 - CUDA 버전 필요시 별도 설치)
+torch>=2.0.0
+
 # FastAPI & MLOps
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
