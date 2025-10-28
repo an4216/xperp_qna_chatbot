@@ -4,3 +4,14 @@ venv/
 __pycache__/
 .idea/
 vectorstore/
+
+# Claude Code
+.claude/
+
+# Data & Logs
+data/
+logs/
+outputs/
+
+# MLflow
+mlruns/
