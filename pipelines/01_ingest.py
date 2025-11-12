@@ -21,7 +21,11 @@ LOW_SCORE_FILE = "logs/low_score.json"
 def get_embeddings():
     return HuggingFaceBgeEmbeddings(
         model_name="BAAI/bge-m3",
-        encode_kwargs={"normalize_embeddings": True}
+        model_kwargs={"device": "cpu"},  # CPU 명시적 사용
+        encode_kwargs={
+            "normalize_embeddings": True,
+            "batch_size": 8  # 배치 크기 축소 (기본값 32 → 8)
+        }
     )
 
 # ✅ 문서 로딩
@@ -79,7 +83,7 @@ def calc_fingerprint(docs):
         m.update(d.page_content.encode("utf-8"))
     return m.hexdigest()
 
-# ✅ 인덱스 생성/갱신
+# ✅ 인덱스 생성/갱신 (배치 처리로 메모리 절약)
 def build_vectorstore(documents, low_score_docs):
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     split_docs = splitter.split_documents(documents)
@@ -89,6 +93,7 @@ def build_vectorstore(documents, low_score_docs):
     os.makedirs(VECTOR_DIR, exist_ok=True)
 
     index_path = os.path.join(VECTOR_DIR, "index.faiss")
+    BATCH_SIZE = 50  # 한 번에 50개씩 처리
 
     if os.path.exists(index_path):
         vectorstore = FAISS.load_local(
@@ -96,17 +101,37 @@ def build_vectorstore(documents, low_score_docs):
         )
         print("📂 기존 벡터스토어 로드 완료")
 
+        # 배치 처리로 문서 추가
         if split_docs:
-            vectorstore.add_documents(split_docs)
-            print(f"➕ 새 문서 {len(split_docs)}개 추가 임베딩 완료")
+            for i in range(0, len(split_docs), BATCH_SIZE):
+                batch = split_docs[i:i+BATCH_SIZE]
+                vectorstore.add_documents(batch)
+                print(f"➕ 진행: {i+len(batch)}/{len(split_docs)} 문서 임베딩 완료")
 
         if low_score_docs:
-            vectorstore.add_documents(low_score_docs)
-            print(f"➕ low_score {len(low_score_docs)}개 추가 임베딩 완료")
+            for i in range(0, len(low_score_docs), BATCH_SIZE):
+                batch = low_score_docs[i:i+BATCH_SIZE]
+                vectorstore.add_documents(batch)
+                print(f"➕ low_score: {i+len(batch)}/{len(low_score_docs)} 임베딩 완료")
 
     else:
-        vectorstore = FAISS.from_documents(split_docs + low_score_docs, embeddings)
-        print("🆕 신규 벡터스토어 생성")
+        # 신규 생성 시에도 배치 처리
+        all_docs = split_docs + low_score_docs
+
+        if not all_docs:
+            print("❌ 임베딩할 문서가 없습니다.")
+            return None
+
+        # 첫 번째 배치로 벡터스토어 생성
+        first_batch = all_docs[:BATCH_SIZE]
+        vectorstore = FAISS.from_documents(first_batch, embeddings)
+        print(f"🆕 신규 벡터스토어 생성 ({len(first_batch)}개 문서)")
+
+        # 나머지 배치 추가
+        for i in range(BATCH_SIZE, len(all_docs), BATCH_SIZE):
+            batch = all_docs[i:i+BATCH_SIZE]
+            vectorstore.add_documents(batch)
+            print(f"➕ 진행: {i+len(batch)}/{len(all_docs)} 문서 임베딩 완료")
 
     vectorstore.save_local(VECTOR_DIR)
     print(f"✅ Vectorstore 저장 완료: {VECTOR_DIR}")
@@ -114,6 +139,8 @@ def build_vectorstore(documents, low_score_docs):
 
 # ✅ 메인 실행
 if __name__ == "__main__":
+    import gc  # 메모리 정리용
+
     print("🚀 문서/low_score 로딩 시작...")
 
     docs = load_documents()
@@ -135,3 +162,10 @@ if __name__ == "__main__":
             encoding="utf-8"
         )
         print(f"✅ index_meta.json 저장됨 (docs_fingerprint={fp})")
+
+        # 메모리 정리
+        del vectorstore
+        gc.collect()
+        print("🧹 메모리 정리 완료")
+    else:
+        print("❌ 벡터스토어 생성 실패")
