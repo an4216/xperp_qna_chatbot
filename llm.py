@@ -21,7 +21,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_openai import ChatOpenAI
+from langchain_aws import ChatBedrock
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -49,9 +49,8 @@ def log_execution_time(func):
 # =========================================
 load_dotenv()
 
-VLLM_BASE_URL   = os.getenv("VLLM_BASE_URL")
-MODEL_LLM       = os.getenv("MODEL_LLM")
-OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "not-needed")
+AWS_REGION      = os.getenv("AWS_REGION", "us-east-1")
+BEDROCK_MODEL   = os.getenv("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-20240620-v1:0")
 
 TOP_K           = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR      = os.getenv("VECTOR_DIR", "vectorstore")
@@ -324,12 +323,14 @@ def get_retriever():
 def get_llm():
     global _cached_llm
     if _cached_llm is None:
-        _cached_llm = ChatOpenAI(
-            base_url=VLLM_BASE_URL,
-            api_key=OPENAI_API_KEY,
-            model=MODEL_LLM,
-            timeout=120.0,  # 타임아웃 120초로 증가 (긴 응답 대응)
-            max_retries=2,  # 실패 시 2번까지 재시도
+        _cached_llm = ChatBedrock(
+            model_id=BEDROCK_MODEL,
+            region_name=AWS_REGION,
+            model_kwargs={
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "max_tokens": 4096,
+            },
         )
     return _cached_llm
 
