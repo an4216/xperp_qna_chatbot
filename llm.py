@@ -22,6 +22,10 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_aws import ChatBedrock
+import boto3
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage, AIMessage, AIMessageChunk, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatResult, ChatGeneration
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
@@ -50,7 +54,7 @@ def log_execution_time(func):
 load_dotenv()
 
 AWS_REGION      = os.getenv("AWS_REGION", "us-east-1")
-BEDROCK_MODEL   = os.getenv("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-20240620-v1:0")
+BEDROCK_MODEL   = os.getenv("BEDROCK_MODEL", "huggingface-vlm-gemma-3-27b-instruct")
 
 TOP_K           = int(os.getenv("TOP_K", "4"))
 VECTOR_DIR      = os.getenv("VECTOR_DIR", "vectorstore")
@@ -317,21 +321,173 @@ def get_retriever():
     return _cached_retriever
 
 # =========================================
+# 커스텀 SageMaker Bedrock LLM (boto3 converse API 사용)
+# =========================================
+class BedrockConverseLLM(BaseChatModel):
+    """boto3 Bedrock Runtime converse API를 사용하는 LangChain 호환 LLM"""
+
+    model_id: str
+    region_name: str = "us-east-1"
+    temperature: float = 0.7
+    top_p: float = 0.9
+    max_tokens: int = 4096
+    client: Any = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.client = boto3.client(
+            service_name='bedrock-runtime',
+            region_name=self.region_name
+        )
+
+    @property
+    def _llm_type(self) -> str:
+        return "bedrock-converse"
+
+    def _convert_messages_to_converse_format(self, messages: list[BaseMessage]) -> tuple[list[dict], list[dict]]:
+        """
+        LangChain 메시지를 Bedrock Converse 형식으로 변환
+
+        Returns:
+            tuple: (converse_messages, system_prompts)
+        """
+        converse_messages = []
+        system_prompts = []
+
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                # System 메시지는 별도로 수집
+                system_prompts.append({"text": msg.content})
+            elif isinstance(msg, HumanMessage):
+                converse_messages.append({
+                    "role": "user",
+                    "content": [{"text": msg.content}]
+                })
+            elif isinstance(msg, AIMessage):
+                converse_messages.append({
+                    "role": "assistant",
+                    "content": [{"text": msg.content}]
+                })
+            else:
+                # 기타 메시지는 user로 처리
+                converse_messages.append({
+                    "role": "user",
+                    "content": [{"text": msg.content}]
+                })
+
+        return converse_messages, system_prompts
+
+    def _generate(self, messages: list[BaseMessage], stop: list[str] | None = None, **kwargs) -> ChatResult:
+        """메시지 생성 (동기)"""
+        converse_messages, system_prompts = self._convert_messages_to_converse_format(messages)
+
+        try:
+            # API 호출 파라미터 구성
+            api_params = {
+                "modelId": self.model_id,
+                "messages": converse_messages,
+                "inferenceConfig": {
+                    "maxTokens": self.max_tokens,
+                    "temperature": self.temperature,
+                    "topP": self.top_p
+                }
+            }
+
+            # System 메시지가 있으면 추가
+            if system_prompts:
+                api_params["system"] = system_prompts
+
+            response = self.client.converse(**api_params)
+
+            content = response['output']['message']['content'][0]['text']
+            message = AIMessage(content=content)
+            generation = ChatGeneration(message=message)
+
+            return ChatResult(generations=[generation])
+
+        except Exception as e:
+            print(f"[ERROR] Bedrock Converse API 호출 실패: {e}")
+            raise
+
+    async def _agenerate(self, messages: list[BaseMessage], stop: list[str] | None = None, **kwargs) -> ChatResult:
+        """메시지 생성 (비동기)"""
+        # 동기 버전을 비동기로 래핑
+        return await asyncio.to_thread(self._generate, messages, stop, **kwargs)
+
+    def _stream(self, messages: list[BaseMessage], stop: list[str] | None = None, **kwargs):
+        """
+        스트리밍 생성
+
+        참고: SageMaker 엔드포인트는 Bedrock Converse API를 통한 스트리밍을 지원하지 않을 수 있습니다.
+        이 경우 invoke 결과를 문자 단위로 청크를 나누어 반환합니다.
+        """
+        from langchain_core.outputs import ChatGenerationChunk
+
+        converse_messages, system_prompts = self._convert_messages_to_converse_format(messages)
+
+        try:
+            # API 호출 파라미터 구성
+            api_params = {
+                "modelId": self.model_id,
+                "messages": converse_messages,
+                "inferenceConfig": {
+                    "maxTokens": self.max_tokens,
+                    "temperature": self.temperature,
+                    "topP": self.top_p
+                }
+            }
+
+            # System 메시지가 있으면 추가
+            if system_prompts:
+                api_params["system"] = system_prompts
+
+            # invoke를 사용해서 전체 응답 받기
+            response = self.client.converse(**api_params)
+
+            content = response['output']['message']['content'][0]['text']
+
+            # 응답을 작은 청크로 나누어 yield (의사 스트리밍)
+            chunk_size = 5  # 5글자씩
+            for i in range(0, len(content), chunk_size):
+                chunk_text = content[i:i+chunk_size]
+                message = AIMessageChunk(content=chunk_text)
+                yield ChatGenerationChunk(message=message)
+
+        except Exception as e:
+            print(f"[ERROR] Bedrock Converse API 호출 실패: {e}")
+            raise
+
+# =========================================
 # LLM 초기화
 # =========================================
 @log_execution_time
 def get_llm():
     global _cached_llm
     if _cached_llm is None:
-        _cached_llm = ChatBedrock(
-            model_id=BEDROCK_MODEL,
-            region_name=AWS_REGION,
-            model_kwargs={
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "max_tokens": 4096,
-            },
-        )
+        # SageMaker 엔드포인트 ARN인지 확인
+        if BEDROCK_MODEL and "sagemaker" in BEDROCK_MODEL.lower():
+            print(f"[INFO] SageMaker 엔드포인트 사용: {BEDROCK_MODEL}")
+            _cached_llm = BedrockConverseLLM(
+                model_id=BEDROCK_MODEL,
+                region_name=AWS_REGION,
+                temperature=0.7,
+                top_p=0.9,
+                max_tokens=4096,
+            )
+        else:
+            # Bedrock Foundation Model 사용
+            print(f"[INFO] Bedrock Foundation Model 사용: {BEDROCK_MODEL}")
+            _cached_llm = ChatBedrock(
+                model_id=BEDROCK_MODEL,
+                region_name=AWS_REGION,
+                model_kwargs={
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "max_tokens": 4096,
+                },
+            )
     return _cached_llm
 
 # =========================================
