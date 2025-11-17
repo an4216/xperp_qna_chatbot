@@ -178,10 +178,24 @@
             body: formData
           });
 
-          if (!response.ok || !response.body) {
+          if (!response.ok) {
             botDiv.classList.remove('status-loading');
             if (loadingEl) loadingEl.remove();
-            botDiv.textContent = `오류 발생 (${response.status})`;
+
+            // 서버에서 보낸 에러 메시지 읽기
+            try {
+              const errorMessage = await response.text();
+              botDiv.textContent = errorMessage || `오류 발생 (${response.status})`;
+            } catch (err) {
+              botDiv.textContent = `오류 발생 (${response.status})`;
+            }
+            return;
+          }
+
+          if (!response.body) {
+            botDiv.classList.remove('status-loading');
+            if (loadingEl) loadingEl.remove();
+            botDiv.textContent = '응답을 받을 수 없습니다.';
             return;
           }
 

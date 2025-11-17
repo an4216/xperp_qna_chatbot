@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 import uvicorn
 from llm import get_ai_response, get_cache_info, get_embeddings, get_llm, get_retriever, get_reranker
 import asyncio
-import json, os, time
+import json, os, time, re
 from httpx import AsyncClient, HTTPError
+from rate_limiter import RateLimiter
 
 
 # FastAPI 앱 생성
@@ -15,6 +16,23 @@ app = FastAPI()
 # 환경변수 로드
 load_dotenv()
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+
+# =========================================
+# 가드레일 설정
+# =========================================
+# 입력 검증
+MAX_MESSAGE_LENGTH = int(os.getenv("MAX_MESSAGE_LENGTH", "2000"))
+MIN_MESSAGE_LENGTH = int(os.getenv("MIN_MESSAGE_LENGTH", "5"))
+
+# Rate Limiting
+RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "10"))
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+
+# Rate Limiter 인스턴스 생성
+rate_limiter = RateLimiter(
+    max_requests=RATE_LIMIT_REQUESTS,
+    window_seconds=RATE_LIMIT_WINDOW_SECONDS
+)
 
 # =========================================
 # 서버 시작 시 모델 사전 로드
@@ -60,6 +78,128 @@ async def startup_event():
         print(f"\n[ERROR] 모델 사전 로드 실패: {e}")
         print("첫 요청 시 모델이 로드됩니다.")
 
+# =========================================
+# 입력 검증 함수
+# =========================================
+def _contains_malicious_pattern(text: str) -> bool:
+    """
+    악성 패턴 감지 (Prompt Injection, XSS 등)
+
+    Returns:
+        True: 악성 패턴 감지됨
+        False: 정상 입력
+    """
+    malicious_patterns = [
+        # Prompt Injection 패턴
+        r"ignore\s+(all\s+)?previous\s+instructions?",
+        r"ignore\s+(all\s+)?above",
+        r"disregard\s+(all\s+)?instructions?",
+        r"forget\s+(all\s+)?previous",
+        r"you\s+are\s+now",
+        r"new\s+role",
+        r"act\s+as",
+        r"pretend\s+to\s+be",
+        r"system\s*:",
+        r"assistant\s*:",
+
+        # XSS 패턴
+        r"<script[^>]*>",
+        r"javascript\s*:",
+        r"on\w+\s*=",  # onclick, onerror 등
+        r"<iframe",  # iframe 태그 (속성 무관)
+        r"<object",
+        r"<embed",
+
+        # SQL Injection 기본 패턴 (참고용)
+        r"(union\s+select|drop\s+table|insert\s+into|delete\s+from)",
+    ]
+
+    text_lower = text.lower()
+
+    for pattern in malicious_patterns:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def _is_greeting(text: str) -> bool:
+    """
+    인사말 패턴 체크
+
+    Returns:
+        True: 인사말로 판단
+        False: 인사말 아님
+    """
+    greeting_patterns = [
+        r'^안녕+하*세*요*[?!.~]*$',  # 안녕, 안녕하세요, 안녕하세요~
+        r'^hi+[?!.~]*$',  # hi, hii, hi!
+        r'^hello+[?!.~]*$',  # hello, hello!
+        r'^hey+[?!.~]*$',  # hey, hey!
+        r'^좋은\s*(아침|점심|저녁|하루)[?!.~]*$',  # 좋은 아침
+        r'^(안녕히\s*)?(가세요|계세요)[?!.~]*$',  # 안녕히 가세요
+        r'^감사+합니다*[?!.~]*$',  # 감사합니다
+        r'^고마+워*요*[?!.~]*$',  # 고마워요
+        r'^(thank\s*you*|thanks)[?!.~]*$',  # thank you, thanks
+    ]
+
+    text_lower = text.strip().lower()
+
+    for pattern in greeting_patterns:
+        if re.match(pattern, text_lower, re.IGNORECASE | re.UNICODE):
+            return True
+
+    return False
+
+
+def _validate_input(message: str) -> tuple[bool, str]:
+    """
+    입력 메시지 검증
+
+    Returns:
+        (검증 성공 여부, 에러 메시지)
+    """
+    # 0. 공백만 있는 입력 차단 (최우선)
+    if message.strip() == "":
+        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+
+    # 1. 인사말 체크 (길이 검증보다 우선)
+    if _is_greeting(message):
+        return True, "OK"
+
+    # 2. 길이 검증
+    if len(message) < MIN_MESSAGE_LENGTH:
+        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return False, "질문이 너무 깁니다. 간결하게 요약해서 다시 입력해주세요."
+
+    # 3. 의미 없는 입력 패턴 차단
+    stripped = message.strip()
+
+    # 숫자만 있는 입력 (예: "1", "123")
+    if stripped.isdigit():
+        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+
+    # 특수문자만 있는 입력 (예: "!!!", "???")
+    if re.match(r'^[^\w\s가-힣]+$', stripped, re.UNICODE):
+        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+
+    # 같은 문자 반복 (예: "aaaa", "1111")
+    if len(set(stripped)) == 1 and len(stripped) > 2:
+        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+
+    # 4. 악성 패턴 검증
+    if _contains_malicious_pattern(message):
+        return False, "부적절한 입력이 감지되었습니다. XpERP 관련 질문만 입력해주세요."
+
+    # 5. 제어 문자 검증
+    if any(ord(char) < 32 and char not in ['\n', '\r', '\t'] for char in message):
+        return False, "올바른 형식으로 질문을 입력해주세요."
+
+    return True, "OK"
+
+
 # HTML 템플릿 설정
 templates = Jinja2Templates(directory="templates")
 # 👉 환경 변수 로드 (.env 사용 시)
@@ -76,10 +216,21 @@ async def read_root(request: Request):
 # ✅ 채팅 API 엔드포인트 (스트리밍 버전)
 @app.post("/chat")
 async def chat(message: str = Form(...), session_id: str = Form(None)):
-    # FE가 반드시 session_id를 넘기게 하고, 없으면 에러 리턴(개발 중엔 기본값 줄 수도 있음)
+    # 1. session_id 검증
     if not session_id:
         return PlainTextResponse("session_id is required", status_code=400)
 
+    # 2. Rate Limiting 체크
+    allowed, rate_limit_msg = rate_limiter.is_allowed(session_id)
+    if not allowed:
+        return PlainTextResponse(rate_limit_msg, status_code=429)
+
+    # 3. 입력 검증
+    is_valid, error_msg = _validate_input(message)
+    if not is_valid:
+        return PlainTextResponse(error_msg, status_code=400)
+
+    # 4. AI 응답 생성
     ai_response_generator = get_ai_response(message, session_id=session_id)
 
     async def event_stream():
@@ -93,6 +244,17 @@ async def chat(message: str = Form(...), session_id: str = Form(None)):
 # 🔎 호출 테스트용 API (전체 모아서 반환)
 @app.post("/chat-test")
 async def chat_test(message: str = Form(...), session_id: str = Form("test-session")):
+    # 1. Rate Limiting 체크
+    allowed, rate_limit_msg = rate_limiter.is_allowed(session_id)
+    if not allowed:
+        return PlainTextResponse(rate_limit_msg, status_code=429)
+
+    # 2. 입력 검증
+    is_valid, error_msg = _validate_input(message)
+    if not is_valid:
+        return PlainTextResponse(error_msg, status_code=400)
+
+    # 3. AI 응답 생성
     ai_response_generator = get_ai_response(message, session_id=session_id)
     chunks = []
     for chunk in ai_response_generator:
