@@ -65,6 +65,10 @@ USE_RERANK      = os.getenv("USE_RERANK", "true").lower() == "true"
 RERANK_TOP_K    = int(os.getenv("RERANK_TOP_K", "10"))  # rerank 전 검색할 문서 수
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "10"))  # 대화 이력 최대 메시지 수
 
+# 성능 최적화 설정
+USE_LLM_QUESTION_REWRITE = os.getenv("USE_LLM_QUESTION_REWRITE", "false").lower() == "true"
+MAX_TOKENS      = int(os.getenv("MAX_TOKENS", "4096"))
+
 # =========================================
 # 세션 관리
 # =========================================
@@ -474,7 +478,7 @@ def get_llm():
                 region_name=AWS_REGION,
                 temperature=0.7,
                 top_p=0.9,
-                max_tokens=4096,
+                max_tokens=MAX_TOKENS,
             )
         else:
             # Bedrock Foundation Model 사용
@@ -485,7 +489,7 @@ def get_llm():
                 model_kwargs={
                     "temperature": 0.7,
                     "top_p": 0.9,
-                    "max_tokens": 4096,
+                    "max_tokens": MAX_TOKENS,
                 },
             )
     return _cached_llm
@@ -560,7 +564,8 @@ def process_question(question: str):
     dictionary = load_menu_dict()   # ✅ 최초 1회만 로드, 이후 캐시 사용
     rewritten = rewrite_with_dictionary(question, dictionary)
 
-    if rewritten != question:
+    # LLM 기반 질문 보정 (USE_LLM_QUESTION_REWRITE=true일 때만)
+    if USE_LLM_QUESTION_REWRITE and rewritten != question:
         try:
             dict_chain = get_dictionary_chain()
             llm_rewrite = dict_chain.invoke({
@@ -573,7 +578,8 @@ def process_question(question: str):
             print(f"[WARN] 2차 보정 실패: {e}")
         return rewritten
 
-    return question
+    # LLM 보정 비활성화 시 또는 보정 불필요 시 원본/보정된 질문 반환
+    return rewritten if rewritten != question else question
 
 # =========================================
 # RAG 체인

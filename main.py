@@ -4,9 +4,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import uvicorn
-from llm import get_ai_response, get_cache_info
+from llm import get_ai_response, get_cache_info, get_embeddings, get_llm, get_retriever, get_reranker
 import asyncio
-import json, os
+import json, os, time
 from httpx import AsyncClient, HTTPError
 
 
@@ -15,6 +15,50 @@ app = FastAPI()
 # 환경변수 로드
 load_dotenv()
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+
+# =========================================
+# 서버 시작 시 모델 사전 로드
+# =========================================
+@app.on_event("startup")
+async def startup_event():
+    """서버 시작 시 모든 모델 사전 로드 (첫 요청 시간 단축)"""
+    print("\n" + "="*70)
+    print("[INFO] 모델 사전 로드 시작...")
+    print("="*70)
+    start = time.time()
+
+    try:
+        # 1. 임베딩 모델 로드
+        print("  [1/4] 임베딩 모델 로드 중...", end=" ", flush=True)
+        t = time.time()
+        get_embeddings()
+        print(f"완료 ({time.time()-t:.1f}초)")
+
+        # 2. Retriever 로드
+        print("  [2/4] Retriever 로드 중...", end=" ", flush=True)
+        t = time.time()
+        get_retriever()
+        print(f"완료 ({time.time()-t:.1f}초)")
+
+        # 3. Reranker 로드
+        print("  [3/4] Reranker 로드 중...", end=" ", flush=True)
+        t = time.time()
+        get_reranker()
+        print(f"완료 ({time.time()-t:.1f}초)")
+
+        # 4. LLM 로드
+        print("  [4/4] LLM 로드 중...", end=" ", flush=True)
+        t = time.time()
+        get_llm()
+        print(f"완료 ({time.time()-t:.1f}초)")
+
+        elapsed = time.time() - start
+        print("="*70)
+        print(f"[INFO] 모델 사전 로드 완료! (총 {elapsed:.1f}초)")
+        print("="*70 + "\n")
+    except Exception as e:
+        print(f"\n[ERROR] 모델 사전 로드 실패: {e}")
+        print("첫 요청 시 모델이 로드됩니다.")
 
 # HTML 템플릿 설정
 templates = Jinja2Templates(directory="templates")
