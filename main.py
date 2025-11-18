@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import uvicorn
-from llm import get_ai_response, get_cache_info, get_embeddings, get_llm, get_retriever, get_reranker
+from llm import get_ai_response, get_cache_info, get_embeddings, get_llm, get_retriever, get_reranker, load_menu_dict
 import asyncio
 import json, os, time, re
 from httpx import AsyncClient, HTTPError
@@ -47,27 +47,33 @@ async def startup_event():
 
     try:
         # 1. 임베딩 모델 로드
-        print("  [1/4] 임베딩 모델 로드 중...", end=" ", flush=True)
+        print("  [1/5] 임베딩 모델 로드 중...", end=" ", flush=True)
         t = time.time()
         get_embeddings()
         print(f"완료 ({time.time()-t:.1f}초)")
 
         # 2. Retriever 로드
-        print("  [2/4] Retriever 로드 중...", end=" ", flush=True)
+        print("  [2/5] Retriever 로드 중...", end=" ", flush=True)
         t = time.time()
         get_retriever()
         print(f"완료 ({time.time()-t:.1f}초)")
 
         # 3. Reranker 로드
-        print("  [3/4] Reranker 로드 중...", end=" ", flush=True)
+        print("  [3/5] Reranker 로드 중...", end=" ", flush=True)
         t = time.time()
         get_reranker()
         print(f"완료 ({time.time()-t:.1f}초)")
 
         # 4. LLM 로드
-        print("  [4/4] LLM 로드 중...", end=" ", flush=True)
+        print("  [4/5] LLM 로드 중...", end=" ", flush=True)
         t = time.time()
         get_llm()
+        print(f"완료 ({time.time()-t:.1f}초)")
+
+        # 5. 메뉴 사전 로드
+        print("  [5/5] 메뉴 사전 로드 중...", end=" ", flush=True)
+        t = time.time()
+        load_menu_dict()
         print(f"완료 ({time.time()-t:.1f}초)")
 
         elapsed = time.time() - start
