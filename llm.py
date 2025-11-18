@@ -472,91 +472,151 @@ def get_llm():
     return _cached_llm
 
 # =========================================
-# Dictionary 기반 질문 보정
+# 주제 가드레일 (연말정산)
 # =========================================
+def validate_yearend_tax_topic(question: str) -> tuple[bool, str]:
+    """
+    연말정산 주제 관련성 검증
+
+    Returns:
+        (검증 성공 여부, 에러 메시지)
+    """
+    # 연말정산 관련 키워드
+    yearend_keywords = [
+        "연말정산", "소득공제", "세액공제", "근로소득", "원천징수",
+        "국세청", "홈택스", "간소화", "공제", "세금", "환급",
+        "부양가족", "의료비", "교육비", "기부금", "보험료",
+        "신용카드", "체크카드", "현금영수증", "월세", "주택자금",
+        "연금저축", "퇴직연금", "IRP", "ISA", "청약저축",
+        "장기주택", "전세", "월세공제", "주택담보대출",
+        "소득세", "지방소득세", "종합소득세", "원천세",
+        "과세표준", "세율", "누진공제", "결정세액",
+        "급여", "연봉", "상여", "수당", "임금"
+    ]
+
+    question_lower = question.lower()
+
+    # 키워드 매칭 확인
+    for keyword in yearend_keywords:
+        if keyword in question_lower:
+            return True, "OK"
+
+    # 일반적인 인사말이나 도움 요청은 허용
+    greeting_patterns = [
+        r"^안녕",
+        r"^반가",
+        r"^도와",
+        r"^도움",
+        r"^문의",
+        r"^궁금",
+        r"어떻게\s*(사용|이용|하면|하는)",
+        r"^알려"
+    ]
+
+    for pattern in greeting_patterns:
+        if re.search(pattern, question_lower):
+            return True, "OK"
+
+    # 연말정산 관련 키워드가 없으면 거부
+    return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!"
+
+# =========================================
+# Dictionary 기반 질문 보정 (주석처리 - 사용 안 함)
+# =========================================
+# @log_execution_time
+# def load_menu_dict(path=MENU_FILE_PATH):
+#     global _cached_menu_dict
+#     if _cached_menu_dict is not None:
+#         return _cached_menu_dict
+
+#     if not Path(path).exists():
+#         raise FileNotFoundError(f"❌ 메뉴 파일 없음: {path}")
+
+#     with open(path, "r", encoding="utf-8") as f:
+#         _cached_menu_dict = json.load(f)
+
+#     print(f"[INFO] MENU_DICT 최초 로드 완료 (size={len(_cached_menu_dict)})")
+#     return _cached_menu_dict
+
 @log_execution_time
 def load_menu_dict(path=MENU_FILE_PATH):
-    global _cached_menu_dict
-    if _cached_menu_dict is not None:
-        return _cached_menu_dict
+    """더미 함수 - 연말정산 모드에서는 사용 안 함"""
+    print("[INFO] 메뉴 사전 로드 생략 (연말정산 모드)")
+    return {}
 
-    if not Path(path).exists():
-        raise FileNotFoundError(f"❌ 메뉴 파일 없음: {path}")
+# def tokenize_korean(text: str) -> list[str]:
+#     return re.findall(r"[가-힣A-Za-z0-9]+", text)
 
-    with open(path, "r", encoding="utf-8") as f:
-        _cached_menu_dict = json.load(f)
+# def rewrite_with_dictionary(question: str, dictionary: dict, threshold: int = 80) -> str:
+#     tokens = tokenize_korean(question)
+#     best_match, best_score, best_category = None, 0, None
 
-    print(f"[INFO] MENU_DICT 최초 로드 완료 (size={len(_cached_menu_dict)})")
-    return _cached_menu_dict
+#     for category, keywords in dictionary.items():
+#         for kw in keywords:
+#             if question.strip() == kw:
+#                 return f"[{category}] {question}"
+#             if len(kw) > 1 and kw in tokens:
+#                 return f"[{category}] {question}"
+#             score = fuzz.partial_ratio(kw, question)
+#             if score > best_score:
+#                 best_match, best_score, best_category = kw, score, category
 
-def tokenize_korean(text: str) -> list[str]:
-    return re.findall(r"[가-힣A-Za-z0-9]+", text)
+#     if best_match and best_score >= threshold:
+#         return f"[{best_category}] {question} (※ {best_match} 로 인식)"
+#     return question
 
-def rewrite_with_dictionary(question: str, dictionary: dict, threshold: int = 80) -> str:
-    tokens = tokenize_korean(question)
-    best_match, best_score, best_category = None, 0, None
+# def get_dictionary_chain():
+#     llm = get_llm()
+#     template = """
+#     너는 '질문 재작성기' 역할을 한다. 사전(dictionary)의 키워드와 대메뉴 정보를 참고해 사용자의 질문을 더 명확하고 구체적인 "질문 문장"으로 다시 작성한다.
 
-    for category, keywords in dictionary.items():
-        for kw in keywords:
-            if question.strip() == kw:
-                return f"[{category}] {question}"
-            if len(kw) > 1 and kw in tokens:
-                return f"[{category}] {question}"
-            score = fuzz.partial_ratio(kw, question)
-            if score > best_score:
-                best_match, best_score, best_category = kw, score, category
+#     규칙:
+#     - 반드시 질문 형태로 출력한다. (답변 금지)
+#     - 질문을 구체적으로 만들어라. ("왜 그런지", "제공된 문서들을 기반으로 설명해주세요" 등을 붙여라)
+#     - 대메뉴 태그가 있으면 질문에 포함시켜라.
+#     - 불필요하게 길게 풀지 말고, 한 문장 안에서 간결하지만 구체적으로 표현해라.
 
-    if best_match and best_score >= threshold:
-        return f"[{best_category}] {question} (※ {best_match} 로 인식)"
-    return question
+#     예시:
+#     입력: [입주자] 차량등록은 어디서해?
+#     출력: 입주자 메뉴에서 차량등록은 어디서 하는지 제공된 문서들을 기반으로 구체적으로 상세하게 설명해주세요.
+#     입력: [수납] 연체료는 어디서 확인해?
+#     출력: 수납 메뉴에서 연체료는 어디서 확인하는지 제공된 문서들을 기반으로 상세하게 알려주세요.
+#     입력: [입주자] 중간정산할때 전기검침 사용량입력 후 계산을 하면 금액이 안맞아요
+#     출력: 입주자 메뉴에서 중간정산 시 전기검침 사용량 입력 후 계산 금액이 왜 맞지 않는지 제공된 문서들에 기반해서 구체적으로 상세하게 설명해주세요.
 
-def get_dictionary_chain():
-    llm = get_llm()
-    template = """
-    너는 '질문 재작성기' 역할을 한다. 사전(dictionary)의 키워드와 대메뉴 정보를 참고해 사용자의 질문을 더 명확하고 구체적인 "질문 문장"으로 다시 작성한다.
+#     [사전] {dictionary}
+#     [사용자질문] {question}
+#     """.strip()
 
-    규칙:
-    - 반드시 질문 형태로 출력한다. (답변 금지)
-    - 질문을 구체적으로 만들어라. ("왜 그런지", "제공된 문서들을 기반으로 설명해주세요" 등을 붙여라)
-    - 대메뉴 태그가 있으면 질문에 포함시켜라.
-    - 불필요하게 길게 풀지 말고, 한 문장 안에서 간결하지만 구체적으로 표현해라.
+#     prompt = ChatPromptTemplate.from_template(template)
+#     return prompt | llm | StrOutputParser()
 
-    예시:
-    입력: [입주자] 차량등록은 어디서해?
-    출력: 입주자 메뉴에서 차량등록은 어디서 하는지 제공된 문서들을 기반으로 구체적으로 상세하게 설명해주세요.
-    입력: [수납] 연체료는 어디서 확인해?
-    출력: 수납 메뉴에서 연체료는 어디서 확인하는지 제공된 문서들을 기반으로 상세하게 알려주세요.
-    입력: [입주자] 중간정산할때 전기검침 사용량입력 후 계산을 하면 금액이 안맞아요
-    출력: 입주자 메뉴에서 중간정산 시 전기검침 사용량 입력 후 계산 금액이 왜 맞지 않는지 제공된 문서들에 기반해서 구체적으로 상세하게 설명해주세요.
+# @log_execution_time
+# def process_question(question: str):
+#     dictionary = load_menu_dict()   # ✅ 최초 1회만 로드, 이후 캐시 사용
+#     rewritten = rewrite_with_dictionary(question, dictionary)
 
-    [사전] {dictionary}
-    [사용자질문] {question}
-    """.strip()
+#     # LLM 기반 질문 보정 (USE_LLM_QUESTION_REWRITE=true일 때만)
+#     if USE_LLM_QUESTION_REWRITE and rewritten != question:
+#         try:
+#             dict_chain = get_dictionary_chain()
+#             llm_rewrite = dict_chain.invoke({
+#                 "dictionary": json.dumps(dictionary, ensure_ascii=False, indent=2),
+#                 "question": rewritten
+#             })
+#             if llm_rewrite:
+#                 return llm_rewrite
+#         except Exception as e:
+#             print(f"[WARN] 2차 보정 실패: {e}")
+#         return rewritten
 
-    prompt = ChatPromptTemplate.from_template(template)
-    return prompt | llm | StrOutputParser()
+#     # LLM 보정 비활성화 시 또는 보정 불필요 시 원본/보정된 질문 반환
+#     return rewritten if rewritten != question else question
 
 @log_execution_time
 def process_question(question: str):
-    dictionary = load_menu_dict()   # ✅ 최초 1회만 로드, 이후 캐시 사용
-    rewritten = rewrite_with_dictionary(question, dictionary)
-
-    # LLM 기반 질문 보정 (USE_LLM_QUESTION_REWRITE=true일 때만)
-    if USE_LLM_QUESTION_REWRITE and rewritten != question:
-        try:
-            dict_chain = get_dictionary_chain()
-            llm_rewrite = dict_chain.invoke({
-                "dictionary": json.dumps(dictionary, ensure_ascii=False, indent=2),
-                "question": rewritten
-            })
-            if llm_rewrite:
-                return llm_rewrite
-        except Exception as e:
-            print(f"[WARN] 2차 보정 실패: {e}")
-        return rewritten
-
-    # LLM 보정 비활성화 시 또는 보정 불필요 시 원본/보정된 질문 반환
-    return rewritten if rewritten != question else question
+    """연말정산 모드에서는 질문 보정 없이 원본 반환"""
+    return question
 
 # =========================================
 # RAG 체인
@@ -583,7 +643,7 @@ def _get_simple_prompt():
     """단순 질문용 프롬프트 (간단한 답변만)"""
     system_prompt = (
         """
-        당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.
+        당신은 Xperp 연말정산 프로그램에 대한 전문 상담 챗봇입니다.
         사용자의 질문에 대해 문서 기반으로 **간단하고 명확하게** 답변하세요.
 
         답변 규칙:
@@ -624,14 +684,14 @@ def _get_detailed_prompt():
 
     system_prompt = (
             """
-            당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.
+            당신은 Xperp 연말정산 프로그램에 대한 전문 상담 챗봇입니다.
             사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.
             당신의 임무는 아래 문서를 기반으로 가장 정확하고 실무적인 답변을 제공하는 것입니다:
             1) 질문(Q)과 답변(A), 키워드(T)가 포함된 QnA 문서
             2) PDF 매뉴얼 및 기타 텍스트 설명 문서
 
-            답변 구성 방식 (qna.txt 우선):
-           - 사용자의 질문이 qna.txt 문서에 존재하거나 키워드를 참고하여 유사한 항목이 있다면, 해당 A 내용을 우선적으로 정리하여 답변의 맨 처음에 제공합니다.
+            답변 구성 방식 :
+           - 사용자의 질문이 txt 문서에 존재하거나 키워드를 참고하여 유사한 항목이 있다면, 해당 A 내용을 우선적으로 정리하여 답변의 맨 처음에 제공합니다.
            - 이후 PDF 매뉴얼 등 기타 문서를 참고하여 보완 설명을 이어서 작성합니다.
            - 문서에 따라 아래 형식을 기준으로 정돈된 답변을 가독성을 고려하여 작성하세요:
 
@@ -874,6 +934,12 @@ def hyde_transform(question: str, max_retries: int = 2) -> str:
 def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if not session_id:
         raise ValueError("session_id is required.")
+
+    # 0. 연말정산 주제 가드레일 검증
+    is_valid, error_msg = validate_yearend_tax_topic(user_message)
+    if not is_valid:
+        yield error_msg
+        return
 
     # HyDE 기본값: 환경변수 사용
     if use_hyde is None:

@@ -134,11 +134,11 @@ def _validate_input(message: str) -> tuple[bool, str]:
     """
     # 0. 공백만 있는 입력 차단 (최우선)
     if message.strip() == "":
-        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
 
     # 2. 길이 검증
     if len(message) < MIN_MESSAGE_LENGTH:
-        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
 
     if len(message) > MAX_MESSAGE_LENGTH:
         return False, "질문이 너무 깁니다. 간결하게 요약해서 다시 입력해주세요."
@@ -148,19 +148,19 @@ def _validate_input(message: str) -> tuple[bool, str]:
 
     # 숫자만 있는 입력 (예: "1", "123")
     if stripped.isdigit():
-        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
 
     # 특수문자만 있는 입력 (예: "!!!", "???")
     if re.match(r'^[^\w\s가-힣]+$', stripped, re.UNICODE):
-        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
 
     # 같은 문자 반복 (예: "aaaa", "1111")
     if len(set(stripped)) == 1 and len(stripped) > 2:
-        return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
+        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
 
     # 4. 악성 패턴 검증
     if _contains_malicious_pattern(message):
-        return False, "부적절한 입력이 감지되었습니다. XpERP 관련 질문만 입력해주세요."
+        return False, "부적절한 입력이 감지되었습니다. XPERP 연말정산 관련 질문만 입력해주세요."
 
     # 5. 제어 문자 검증
     if any(ord(char) < 32 and char not in ['\n', '\r', '\t'] for char in message):
