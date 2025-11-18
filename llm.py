@@ -17,16 +17,15 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, FewS
 from langchain_core.output_parsers import StrOutputParser
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_community.vectorstores import FAISS
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_aws import ChatBedrock
+from langchain_aws.retrievers import AmazonKnowledgeBasesRetriever
 import boto3
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatResult, ChatGeneration
-from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
@@ -57,13 +56,14 @@ AWS_REGION      = os.getenv("AWS_REGION", "us-east-1")
 BEDROCK_MODEL   = os.getenv("BEDROCK_MODEL", "huggingface-vlm-gemma-3-27b-instruct")
 
 TOP_K           = int(os.getenv("TOP_K", "4"))
-VECTOR_DIR      = os.getenv("VECTOR_DIR", "vectorstore")
 MENU_FILE_PATH  = os.getenv("MENU_FILE_PATH", "docs/menus/menus.txt")
-META_PATH       = Path("data/artifacts/index_meta.json")
 USE_HYDE        = os.getenv("USE_HYDE", "true").lower() == "true"
 USE_RERANK      = os.getenv("USE_RERANK", "true").lower() == "true"
-RERANK_TOP_K    = int(os.getenv("RERANK_TOP_K", "10"))  # rerank 전 검색할 문서 수
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "10"))  # 대화 이력 최대 메시지 수
+
+# Bedrock Knowledge Base 설정
+BEDROCK_KB_ID   = os.getenv("BEDROCK_KB_ID", "")
+BEDROCK_KB_RESULTS = int(os.getenv("BEDROCK_KB_RESULTS", "4"))
 
 # 성능 최적화 설정
 USE_LLM_QUESTION_REWRITE = os.getenv("USE_LLM_QUESTION_REWRITE", "false").lower() == "true"
@@ -130,12 +130,9 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
 # =========================================
 # 전역 캐싱 변수
 # =========================================
-_cached_embeddings = None
 _cached_retriever = None
 _cached_llm = None
 _cached_rag_chain = None
-_cached_vectorstore = None
-_cached_fingerprint = None
 _cached_menu_dict = None
 _cached_hyde_chain_simple = None
 _cached_hyde_chain_detailed = None
@@ -223,39 +220,8 @@ def get_reranker():
     return _cached_reranker
 
 # =========================================
-# 임베딩 & 벡터스토어
+# Bedrock Knowledge Base Retriever
 # =========================================
-@log_execution_time
-def get_embeddings():
-    global _cached_embeddings
-    if _cached_embeddings is None:
-        # GPU 사용 가능 여부 확인
-        try:
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"[INFO] 임베딩 모델 device: {device}")
-        except ImportError:
-            device = "cpu"
-            print(f"[INFO] 임베딩 모델 device: {device}")
-
-        _cached_embeddings = HuggingFaceBgeEmbeddings(
-            model_name="BAAI/bge-m3",
-            model_kwargs={"device": device},
-            encode_kwargs={"normalize_embeddings": True}
-        )
-    return _cached_embeddings
-
-def _load_metadata():
-    if not META_PATH.exists():
-        return {}
-    try:
-        return json.loads(META_PATH.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"[WARNING] 메타데이터 로드 실패: {e}")
-        return {}
-
-def _load_fingerprint():
-    return _load_metadata().get("docs_fingerprint")
 
 class RerankRetriever(BaseRetriever):
     """Reranking을 적용하는 Retriever 래퍼"""
@@ -295,33 +261,44 @@ class RerankRetriever(BaseRetriever):
 
 @log_execution_time
 def get_retriever():
-    global _cached_retriever, _cached_vectorstore, _cached_fingerprint
-    os.makedirs(VECTOR_DIR, exist_ok=True)
-    current_fp = _load_fingerprint()
+    """
+    Amazon Bedrock Knowledge Base Retriever 반환 (캐시됨)
+    """
+    global _cached_retriever
 
-    if _cached_retriever is None or _cached_fingerprint != current_fp:
-        index_path = os.path.join(VECTOR_DIR, "index.faiss")
-        if not os.path.exists(index_path):
-            raise FileNotFoundError(f"❌ 벡터스토어 없음: {index_path}. 01_ingest.py 실행 필요")
-
-        embeddings = get_embeddings()
-        _cached_vectorstore = FAISS.load_local(
-            VECTOR_DIR, embeddings, allow_dangerous_deserialization=True
+    if not BEDROCK_KB_ID:
+        raise ValueError(
+            "❌ BEDROCK_KB_ID 환경 변수가 설정되지 않았습니다.\n"
+            "   .env 파일에 BEDROCK_KB_ID=your-kb-id 추가 필요"
         )
 
-        # Rerank 사용 여부에 따라 retriever 설정
+    if _cached_retriever is None:
+        print(f"[INFO] Bedrock Knowledge Base 사용: {BEDROCK_KB_ID}")
+
+        # AmazonKnowledgeBasesRetriever 생성
+        base_retriever = AmazonKnowledgeBasesRetriever(
+            knowledge_base_id=BEDROCK_KB_ID,
+            retrieval_config={
+                "vectorSearchConfiguration": {
+                    "numberOfResults": BEDROCK_KB_RESULTS
+                }
+            },
+            region_name=AWS_REGION
+        )
+
+        # Reranking 적용 (선택적)
         if USE_RERANK:
-            base_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': RERANK_TOP_K})
+            print(f"[INFO] Bedrock KB + Reranker 조합 사용 (results: {BEDROCK_KB_RESULTS} → top_k: {TOP_K})")
             reranker = get_reranker()
             _cached_retriever = RerankRetriever(
                 base_retriever=base_retriever,
                 reranker=reranker,
-                search_k=RERANK_TOP_K
+                search_k=BEDROCK_KB_RESULTS
             )
         else:
-            _cached_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+            print(f"[INFO] Bedrock KB 단독 사용 (results: {BEDROCK_KB_RESULTS})")
+            _cached_retriever = base_retriever
 
-        _cached_fingerprint = current_fp
     return _cached_retriever
 
 # =========================================

@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import uvicorn
-from llm import get_ai_response, get_cache_info, get_embeddings, get_llm, get_retriever, get_reranker, load_menu_dict
+from llm import get_ai_response, get_cache_info, get_llm, get_retriever, get_reranker, load_menu_dict, USE_RERANK
 import asyncio
 import json, os, time, re
 from httpx import AsyncClient, HTTPError
@@ -46,32 +46,29 @@ async def startup_event():
     start = time.time()
 
     try:
-        # 1. 임베딩 모델 로드
-        print("  [1/5] 임베딩 모델 로드 중...", end=" ", flush=True)
-        t = time.time()
-        get_embeddings()
-        print(f"완료 ({time.time()-t:.1f}초)")
-
-        # 2. Retriever 로드
-        print("  [2/5] Retriever 로드 중...", end=" ", flush=True)
+        # 1. Retriever 로드 (Bedrock KB)
+        print("  [1/4] Retriever 로드 중...", end=" ", flush=True)
         t = time.time()
         get_retriever()
         print(f"완료 ({time.time()-t:.1f}초)")
 
-        # 3. Reranker 로드
-        print("  [3/5] Reranker 로드 중...", end=" ", flush=True)
-        t = time.time()
-        get_reranker()
-        print(f"완료 ({time.time()-t:.1f}초)")
+        # 2. Reranker 로드 (USE_RERANK=true일 때만)
+        if USE_RERANK:
+            print("  [2/4] Reranker 로드 중...", end=" ", flush=True)
+            t = time.time()
+            get_reranker()
+            print(f"완료 ({time.time()-t:.1f}초)")
+        else:
+            print("  [2/4] Reranker 로드 생략 (USE_RERANK=false)")
 
-        # 4. LLM 로드
-        print("  [4/5] LLM 로드 중...", end=" ", flush=True)
+        # 3. LLM 로드
+        print("  [3/4] LLM 로드 중...", end=" ", flush=True)
         t = time.time()
         get_llm()
         print(f"완료 ({time.time()-t:.1f}초)")
 
-        # 5. 메뉴 사전 로드
-        print("  [5/5] 메뉴 사전 로드 중...", end=" ", flush=True)
+        # 4. 메뉴 사전 로드
+        print("  [4/4] 메뉴 사전 로드 중...", end=" ", flush=True)
         t = time.time()
         load_menu_dict()
         print(f"완료 ({time.time()-t:.1f}초)")
@@ -128,36 +125,6 @@ def _contains_malicious_pattern(text: str) -> bool:
 
     return False
 
-
-def _is_greeting(text: str) -> bool:
-    """
-    인사말 패턴 체크
-
-    Returns:
-        True: 인사말로 판단
-        False: 인사말 아님
-    """
-    greeting_patterns = [
-        r'^안녕+하*세*요*[?!.~]*$',  # 안녕, 안녕하세요, 안녕하세요~
-        r'^hi+[?!.~]*$',  # hi, hii, hi!
-        r'^hello+[?!.~]*$',  # hello, hello!
-        r'^hey+[?!.~]*$',  # hey, hey!
-        r'^좋은\s*(아침|점심|저녁|하루)[?!.~]*$',  # 좋은 아침
-        r'^(안녕히\s*)?(가세요|계세요)[?!.~]*$',  # 안녕히 가세요
-        r'^감사+합니다*[?!.~]*$',  # 감사합니다
-        r'^고마+워*요*[?!.~]*$',  # 고마워요
-        r'^(thank\s*you*|thanks)[?!.~]*$',  # thank you, thanks
-    ]
-
-    text_lower = text.strip().lower()
-
-    for pattern in greeting_patterns:
-        if re.match(pattern, text_lower, re.IGNORECASE | re.UNICODE):
-            return True
-
-    return False
-
-
 def _validate_input(message: str) -> tuple[bool, str]:
     """
     입력 메시지 검증
@@ -168,10 +135,6 @@ def _validate_input(message: str) -> tuple[bool, str]:
     # 0. 공백만 있는 입력 차단 (최우선)
     if message.strip() == "":
         return False, "XpERP 사용법이나 오류에 대해 구체적으로 질문해주세요."
-
-    # 1. 인사말 체크 (길이 검증보다 우선)
-    if _is_greeting(message):
-        return True, "OK"
 
     # 2. 길이 검증
     if len(message) < MIN_MESSAGE_LENGTH:
