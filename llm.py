@@ -521,102 +521,164 @@ def validate_yearend_tax_topic(question: str) -> tuple[bool, str]:
     return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!"
 
 # =========================================
-# Dictionary 기반 질문 보정 (주석처리 - 사용 안 함)
+# Dictionary 기반 질문 보정 (연말정산용)
 # =========================================
-# @log_execution_time
-# def load_menu_dict(path=MENU_FILE_PATH):
-#     global _cached_menu_dict
-#     if _cached_menu_dict is not None:
-#         return _cached_menu_dict
-
-#     if not Path(path).exists():
-#         raise FileNotFoundError(f"❌ 메뉴 파일 없음: {path}")
-
-#     with open(path, "r", encoding="utf-8") as f:
-#         _cached_menu_dict = json.load(f)
-
-#     print(f"[INFO] MENU_DICT 최초 로드 완료 (size={len(_cached_menu_dict)})")
-#     return _cached_menu_dict
-
 @log_execution_time
 def load_menu_dict(path=MENU_FILE_PATH):
-    """더미 함수 - 연말정산 모드에서는 사용 안 함"""
-    print("[INFO] 메뉴 사전 로드 생략 (연말정산 모드)")
-    return {}
+    """연말정산 키워드 dictionary 로드"""
+    global _cached_menu_dict
+    if _cached_menu_dict is not None:
+        return _cached_menu_dict
 
-# def tokenize_korean(text: str) -> list[str]:
-#     return re.findall(r"[가-힣A-Za-z0-9]+", text)
+    # 연말정산 관련 키워드 dictionary
+    _cached_menu_dict = {
+        "소득공제": [
+            "소득공제", "근로소득공제", "인적공제", "부양가족공제", "배우자공제",
+            "경로우대공제", "장애인공제", "부녀자공제", "한부모공제",
+            "신용카드", "체크카드", "현금영수증", "대중교통", "전통시장",
+            "월세공제", "주택마련저축", "주택임차차입금", "장기주택저당차입금",
+            "주택담보대출", "전세", "월세", "임차"
+        ],
+        "세액공제": [
+            "세액공제", "자녀세액공제", "연금계좌", "퇴직연금", "연금저축",
+            "IRP", "ISA", "청약저축", "장기집합투자증권저축",
+            "보험료", "의료비", "교육비", "기부금",
+            "월세세액공제", "표준세액공제", "특별세액공제"
+        ],
+        "근로소득": [
+            "근로소득", "원천징수", "급여", "연봉", "상여", "수당", "임금",
+            "비과세", "과세", "실수령액", "세전", "세후",
+            "지급명세서", "원천징수영수증"
+        ],
+        "연말정산절차": [
+            "연말정산", "간소화", "간소화자료", "홈택스", "국세청",
+            "공제신고서", "소득공제신고서", "제출", "신고", "확인",
+            "조회", "다운로드", "인쇄", "출력", "PDF"
+        ],
+        "공제항목": [
+            "의료비", "교육비", "기부금", "보험료", "연금보험료",
+            "건강보험료", "고용보험료", "국민연금", "노인장기요양보험",
+            "안경구입비", "콘택트렌즈", "보청기", "장애인보장구",
+            "난임시술비", "산후조리원", "미숙아", "선천성이상아"
+        ],
+        "세금계산": [
+            "소득세", "지방소득세", "종합소득세", "원천세",
+            "과세표준", "세율", "누진공제", "결정세액",
+            "기납부세액", "차감징수세액", "환급", "추가납부",
+            "계산", "산출", "세액"
+        ],
+        "Xperp기능": [
+            "Xperp", "엑스퍼프", "입력", "등록", "수정", "삭제",
+            "조회", "확인", "저장", "계산", "자동계산",
+            "메뉴", "화면", "버튼", "오류", "에러",
+            "설정", "환경설정", "인쇄", "출력", "엑셀", "내보내기"
+        ]
+    }
 
-# def rewrite_with_dictionary(question: str, dictionary: dict, threshold: int = 80) -> str:
-#     tokens = tokenize_korean(question)
-#     best_match, best_score, best_category = None, 0, None
+    print(f"[INFO] 연말정산 키워드 dictionary 로드 완료 (categories={len(_cached_menu_dict)})")
+    return _cached_menu_dict
 
-#     for category, keywords in dictionary.items():
-#         for kw in keywords:
-#             if question.strip() == kw:
-#                 return f"[{category}] {question}"
-#             if len(kw) > 1 and kw in tokens:
-#                 return f"[{category}] {question}"
-#             score = fuzz.partial_ratio(kw, question)
-#             if score > best_score:
-#                 best_match, best_score, best_category = kw, score, category
+def tokenize_korean(text: str) -> list[str]:
+    """한글, 영문, 숫자를 추출하여 토큰화"""
+    return re.findall(r"[가-힣A-Za-z0-9]+", text)
 
-#     if best_match and best_score >= threshold:
-#         return f"[{best_category}] {question} (※ {best_match} 로 인식)"
-#     return question
+def rewrite_with_dictionary(question: str, dictionary: dict, threshold: int = 75) -> str:
+    """
+    Dictionary 기반 질문 보정
 
-# def get_dictionary_chain():
-#     llm = get_llm()
-#     template = """
-#     너는 '질문 재작성기' 역할을 한다. 사전(dictionary)의 키워드와 대메뉴 정보를 참고해 사용자의 질문을 더 명확하고 구체적인 "질문 문장"으로 다시 작성한다.
+    Args:
+        question: 원본 질문
+        dictionary: 카테고리별 키워드 사전
+        threshold: 유사도 임계값 (기본 75)
 
-#     규칙:
-#     - 반드시 질문 형태로 출력한다. (답변 금지)
-#     - 질문을 구체적으로 만들어라. ("왜 그런지", "제공된 문서들을 기반으로 설명해주세요" 등을 붙여라)
-#     - 대메뉴 태그가 있으면 질문에 포함시켜라.
-#     - 불필요하게 길게 풀지 말고, 한 문장 안에서 간결하지만 구체적으로 표현해라.
+    Returns:
+        보정된 질문 (카테고리 태그 포함)
+    """
+    tokens = tokenize_korean(question)
+    best_match, best_score, best_category = None, 0, None
 
-#     예시:
-#     입력: [입주자] 차량등록은 어디서해?
-#     출력: 입주자 메뉴에서 차량등록은 어디서 하는지 제공된 문서들을 기반으로 구체적으로 상세하게 설명해주세요.
-#     입력: [수납] 연체료는 어디서 확인해?
-#     출력: 수납 메뉴에서 연체료는 어디서 확인하는지 제공된 문서들을 기반으로 상세하게 알려주세요.
-#     입력: [입주자] 중간정산할때 전기검침 사용량입력 후 계산을 하면 금액이 안맞아요
-#     출력: 입주자 메뉴에서 중간정산 시 전기검침 사용량 입력 후 계산 금액이 왜 맞지 않는지 제공된 문서들에 기반해서 구체적으로 상세하게 설명해주세요.
+    for category, keywords in dictionary.items():
+        for kw in keywords:
+            # 완전 일치 검사
+            if question.strip() == kw:
+                return f"[{category}] {question}"
 
-#     [사전] {dictionary}
-#     [사용자질문] {question}
-#     """.strip()
+            # 토큰 포함 검사
+            if len(kw) > 1 and kw in tokens:
+                return f"[{category}] {question}"
 
-#     prompt = ChatPromptTemplate.from_template(template)
-#     return prompt | llm | StrOutputParser()
+            # 유사도 검사 (부분 매칭)
+            score = fuzz.partial_ratio(kw, question)
+            if score > best_score:
+                best_match, best_score, best_category = kw, score, category
 
-# @log_execution_time
-# def process_question(question: str):
-#     dictionary = load_menu_dict()   # ✅ 최초 1회만 로드, 이후 캐시 사용
-#     rewritten = rewrite_with_dictionary(question, dictionary)
+    # 임계값 이상이면 보정
+    if best_match and best_score >= threshold:
+        return f"[{best_category}] {question}"
 
-#     # LLM 기반 질문 보정 (USE_LLM_QUESTION_REWRITE=true일 때만)
-#     if USE_LLM_QUESTION_REWRITE and rewritten != question:
-#         try:
-#             dict_chain = get_dictionary_chain()
-#             llm_rewrite = dict_chain.invoke({
-#                 "dictionary": json.dumps(dictionary, ensure_ascii=False, indent=2),
-#                 "question": rewritten
-#             })
-#             if llm_rewrite:
-#                 return llm_rewrite
-#         except Exception as e:
-#             print(f"[WARN] 2차 보정 실패: {e}")
-#         return rewritten
+    return question
 
-#     # LLM 보정 비활성화 시 또는 보정 불필요 시 원본/보정된 질문 반환
-#     return rewritten if rewritten != question else question
+def get_dictionary_chain():
+    """LLM 기반 질문 재작성 체인"""
+    llm = get_llm()
+    template = """
+    너는 '질문 재작성기' 역할을 한다. 연말정산 키워드 사전과 카테고리 정보를 참고해 사용자의 질문을 더 명확하고 구체적인 "질문 문장"으로 다시 작성한다.
+
+    규칙:
+    - 반드시 질문 형태로 출력한다. (답변 금지)
+    - 질문을 구체적으로 만들어라. ("어떻게", "왜 그런지", "제공된 문서들을 기반으로 설명해주세요" 등을 붙여라)
+    - 카테고리 태그가 있으면 질문에 자연스럽게 포함시켜라.
+    - 불필요하게 길게 풀지 말고, 한 문장 안에서 간결하지만 구체적으로 표현해라.
+    - 연말정산 관련 용어를 정확하게 사용해라.
+
+    예시:
+    입력: [소득공제] 신용카드 공제율이 어떻게 돼?
+    출력: 소득공제에서 신용카드 공제율이 어떻게 되는지 제공된 문서들을 기반으로 구체적으로 설명해주세요.
+
+    입력: [세액공제] 의료비 공제는 어디서 확인해?
+    출력: 세액공제에서 의료비 공제 내역은 어디서 확인하는지 제공된 문서들을 기반으로 상세하게 알려주세요.
+
+    입력: [Xperp기능] 간소화자료 가져오기 안돼요
+    출력: Xperp에서 간소화자료 가져오기가 왜 안되는지 원인과 해결방법을 제공된 문서들에 기반해서 구체적으로 상세하게 설명해주세요.
+
+    [사전] {dictionary}
+    [사용자질문] {question}
+    """.strip()
+
+    prompt = ChatPromptTemplate.from_template(template)
+    return prompt | llm | StrOutputParser()
 
 @log_execution_time
 def process_question(question: str):
-    """연말정산 모드에서는 질문 보정 없이 원본 반환"""
-    return question
+    """
+    연말정산 질문 보정 처리
+
+    1단계: Dictionary 기반 카테고리 태깅
+    2단계: LLM 기반 질문 재작성 (선택적)
+    """
+    dictionary = load_menu_dict()
+    rewritten = rewrite_with_dictionary(question, dictionary)
+
+    # LLM 기반 질문 보정 (USE_LLM_QUESTION_REWRITE=true일 때만)
+    if USE_LLM_QUESTION_REWRITE and rewritten != question:
+        try:
+            dict_chain = get_dictionary_chain()
+            llm_rewrite = dict_chain.invoke({
+                "dictionary": json.dumps(dictionary, ensure_ascii=False, indent=2),
+                "question": rewritten
+            })
+            if llm_rewrite:
+                print(f"[INFO] 질문 보정: {question[:50]}... → {llm_rewrite[:50]}...")
+                return llm_rewrite
+        except Exception as e:
+            print(f"[WARN] LLM 질문 보정 실패: {e}")
+            return rewritten
+
+    # Dictionary 보정만 적용하거나 보정 불필요 시
+    if rewritten != question:
+        print(f"[INFO] 카테고리 태깅: {question[:50]}... → {rewritten[:50]}...")
+
+    return rewritten
 
 # =========================================
 # RAG 체인
