@@ -236,9 +236,28 @@ class RerankRetriever(BaseRetriever):
         self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
     ) -> List[Document]:
         """검색 후 재순위화"""
-        # 1차 검색 (더 많은 문서)
+        # 1차 검색 (더 많은 문서) - 재시도 로직 포함
         search_start = time.perf_counter()
-        docs = self.base_retriever.invoke(query)
+        docs = []
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                docs = self.base_retriever.invoke(query)
+                break  # 성공 시 루프 종료
+            except Exception as e:
+                error_type = type(e).__name__
+                error_msg = str(e)
+                print(f"[ERROR] Base retriever 호출 실패 (시도 {attempt + 1}/{max_retries}): {error_type} - {error_msg}")
+                
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # 지수 백오프: 1초, 2초
+                    time.sleep(wait_time)
+                else:
+                    # 모든 재시도 실패 시 빈 문서 리스트 반환
+                    print(f"[WARN] 모든 재시도 실패. 빈 문서 리스트 반환합니다.")
+                    docs = []
+        
         search_time = time.perf_counter() - search_start
 
         # Reranking 적용
@@ -1038,26 +1057,67 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if use_hyde and search_query != effective_message:
         # HyDE 모드: 가상 답변으로 1회 검색 → 캐시된 chain으로 답변 생성
         retriever = get_retriever()
-        docs = retriever.invoke(search_query)
-
+        
+        # Retriever 호출 시 재시도 로직 포함
+        docs = []
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                docs = retriever.invoke(search_query)
+                break  # 성공 시 루프 종료
+            except Exception as e:
+                error_type = type(e).__name__
+                error_msg = str(e)
+                print(f"[ERROR] Retriever 호출 실패 (시도 {attempt + 1}/{max_retries}): {error_type} - {error_msg}")
+                
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # 지수 백오프: 1초, 2초
+                    time.sleep(wait_time)
+                else:
+                    # 모든 재시도 실패 시 빈 문서 리스트로 대체
+                    print(f"[WARN] 모든 재시도 실패. 빈 문서 리스트로 대체합니다.")
+                    docs = []
+                    yield f"⚠️ 벡터 데이터베이스 연결에 문제가 발생했습니다. 일반적인 답변을 제공합니다.\n\n"
+        
         # 캐시된 HyDE chain 사용 (질문 유형에 따라 선택)
         hyde_chain = get_hyde_chain(question_type)
         chat_history = get_session_history(session_id)
 
         # 스트리밍 답변 생성
-        stream = hyde_chain.stream({
-            "input": effective_message,  # 원본 질문
-            "context": docs,  # 검색된 문서
-            "chat_history": chat_history.messages
-        })
+        try:
+            stream = hyde_chain.stream({
+                "input": effective_message,  # 원본 질문
+                "context": docs,  # 검색된 문서
+                "chat_history": chat_history.messages
+            })
+        except Exception as e:
+            error_type = type(e).__name__
+            error_msg = str(e)[:200]
+            print(f"[ERROR] HyDE chain 스트리밍 시작 실패: {error_type} - {error_msg}")
+            yield f"❌ 답변 생성 중 오류가 발생했습니다: {error_type}\n벡터 데이터베이스 연결을 확인해주세요."
+            return
     else:
         # 일반 모드 (질문 유형에 따라 선택)
         rag_chain = get_rag_chain(question_type)
 
-        stream = rag_chain.stream(
-            {"input": effective_message},
-            config={"configurable": {"session_id": session_id}},
-        )
+        try:
+            stream = rag_chain.stream(
+                {"input": effective_message},
+                config={"configurable": {"session_id": session_id}},
+            )
+        except Exception as e:
+            error_type = type(e).__name__
+            error_msg = str(e)[:200]
+            print(f"[ERROR] RAG chain 스트리밍 시작 실패: {error_type} - {error_msg}")
+            
+            # ValidationException 또는 벡터 DB 관련 오류인 경우
+            if "ValidationException" in error_type or "vector database" in error_msg.lower() or "aurora" in error_msg.lower():
+                yield f"❌ 벡터 데이터베이스 연결 오류가 발생했습니다.\n"
+                yield f"오류 유형: {error_type}\n"
+                yield f"Aurora DB 인스턴스 연결을 확인하고 잠시 후 다시 시도해주세요."
+            else:
+                yield f"❌ 답변 생성 중 오류가 발생했습니다: {error_type}\n서버 연결을 확인하고 다시 시도해주세요."
+            return
 
     # 스트림 처리 및 대화 이력 저장 (에러 핸들링 강화)
     full_response = ""
