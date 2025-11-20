@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import uvicorn
-from llm import get_ai_response, get_cache_info, get_llm, get_retriever, get_reranker, load_menu_dict, USE_RERANK
+from llm import get_ai_response, get_cache_info, get_llm, get_retriever, get_reranker, load_yearend_keywords, USE_RERANK
 import asyncio
 import json, os, time, re
 from httpx import AsyncClient, HTTPError
@@ -67,10 +67,10 @@ async def startup_event():
         get_llm()
         print(f"완료 ({time.time()-t:.1f}초)")
 
-        # 4. 메뉴 사전 로드
-        print("  [4/4] 메뉴 사전 로드 중...", end=" ", flush=True)
+        # 4. 연말정산 키워드 로드
+        print("  [4/4] 연말정산 키워드 로드 중...", end=" ", flush=True)
         t = time.time()
-        load_menu_dict()
+        load_yearend_keywords()
         print(f"완료 ({time.time()-t:.1f}초)")
 
         elapsed = time.time() - start
