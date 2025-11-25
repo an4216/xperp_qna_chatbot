@@ -514,23 +514,27 @@ def load_yearend_keywords():
 # =========================================
 # 주제 가드레일 (연말정산)
 # =========================================
-def validate_yearend_tax_topic(question: str) -> tuple[bool, str]:
+def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[bool, str, list[str]]:
     """
-    연말정산 주제 관련성 검증
+    연말정산 주제 관련성 검증 (대화 이력 고려)
+
+    Args:
+        question: 현재 질문
+        session_id: 세션 ID (대화 이력 조회용)
 
     Returns:
-        (검증 성공 여부, 에러 메시지)
+        (검증 성공 여부, 에러 메시지, 추출된 키워드 리스트)
     """
     # 파일에서 키워드 로드
     yearend_keywords = load_yearend_keywords()
     question_lower = question.lower()
 
-    # 키워드 매칭 확인
+    # 1. 현재 질문에 키워드가 있으면 바로 허용 (키워드 추출 불필요)
     for keyword in yearend_keywords:
         if keyword in question_lower:
-            return True, "OK"
+            return True, "OK", []
 
-    # 일반적인 인사말이나 도움 요청은 허용
+    # 2. 일반적인 인사말이나 도움 요청은 허용
     greeting_patterns = [
         r"^안녕",
         r"^반가",
@@ -544,10 +548,49 @@ def validate_yearend_tax_topic(question: str) -> tuple[bool, str]:
 
     for pattern in greeting_patterns:
         if re.search(pattern, question_lower):
-            return True, "OK"
+            return True, "OK", []
 
-    # 연말정산 관련 키워드가 없으면 거부
-    return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!"
+    # 3. 후속 질문 패턴 감지 (짧은 질문 + 대명사/지시어)
+    followup_patterns = [
+        r"^(그거|그건|그게|그럼|그러면)",  # 지시대명사
+        r"(항목|내용|방법|절차|메뉴)",  # 맥락 의존 명사
+        r"^(어디|어떻게|뭐|무엇|언제|왜)",  # 의문사로 시작
+        r"(어디서|어떻게)\s*(해|하|봐|보)",  # 의문사 + 동사
+        r"^.{1,15}[?？]$",  # 15자 이하 짧은 질문
+    ]
+
+    is_short_question = len(question) <= 20
+    has_followup_pattern = any(re.search(pattern, question_lower) for pattern in followup_patterns)
+
+    # 짧고 후속 질문 패턴이 있으면 대화 이력에서 키워드 추출
+    if is_short_question and has_followup_pattern and session_id:
+        try:
+            # 대화 이력에서 최근 메시지 확인 (최대 3개)
+            chat_history = get_session_history(session_id)
+            recent_messages = chat_history.messages[-6:]  # 최근 3턴 (user + ai)
+
+            # 최근 대화에서 연말정산 키워드 추출
+            extracted_keywords = []
+            for msg in recent_messages:
+                msg_content = msg.content.lower()
+                for keyword in yearend_keywords:
+                    if keyword in msg_content and keyword not in extracted_keywords:
+                        extracted_keywords.append(keyword)
+                        # 최대 2개까지만 추출 (너무 많으면 질문이 부자연스러움)
+                        if len(extracted_keywords) >= 2:
+                            break
+                if len(extracted_keywords) >= 2:
+                    break
+
+            # 키워드를 찾았으면 후속 질문 허용
+            if extracted_keywords:
+                print(f"[INFO] 후속 질문 감지 - 추출된 키워드: {extracted_keywords}")
+                return True, "OK", extracted_keywords
+        except Exception as e:
+            print(f"[WARN] 대화 이력 확인 실패: {e}")
+
+    # 4. 모든 조건 불만족 시 거부
+    return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!", []
 
 # =========================================
 # 질문 보정
@@ -924,23 +967,33 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if not session_id:
         raise ValueError("session_id is required.")
 
-    # 0. 연말정산 주제 가드레일 검증
-    is_valid, error_msg = validate_yearend_tax_topic(user_message)
+    # 0. 연말정산 주제 가드레일 검증 (대화 이력 고려) + 키워드 추출
+    is_valid, error_msg, extracted_keywords = validate_yearend_tax_topic(user_message, session_id)
     if not is_valid:
         yield error_msg
         return
+
+    # 0-1. 후속 질문이면 키워드를 병합하여 검색 쿼리 생성
+    enhanced_message = user_message
+    if extracted_keywords:
+        # 키워드를 질문 앞에 자연스럽게 추가 (검색 품질 향상)
+        keywords_text = " ".join(extracted_keywords)
+        enhanced_message = f"{keywords_text} {user_message}"
+        print(f"[INFO] 후속 질문 키워드 병합:")
+        print(f"  원본: {user_message}")
+        print(f"  병합: {enhanced_message}")
 
     # HyDE 기본값: 환경변수 사용
     if use_hyde is None:
         use_hyde = USE_HYDE
 
-    # 1. 질문 보정
-    refined_message = refine_question(user_message)
+    # 1. 질문 보정 (키워드가 병합된 질문으로 보정)
+    refined_message = refine_question(enhanced_message)
 
     # 질문 보정 결과 로그
-    if refined_message != user_message:
+    if refined_message != enhanced_message:
         print(f"[INFO] ✓ 질문이 보정되었습니다")
-        print(f"  원본: {user_message}")
+        print(f"  입력: {enhanced_message}")
         print(f"  보정: {refined_message}")
     else:
         print(f"[INFO] 질문 보정 미적용 (원본 사용)")
@@ -1039,10 +1092,10 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
             full_response += chunk
             yield chunk
 
-        # HyDE 모드일 때 대화 이력 수동 저장
+        # HyDE 모드일 때 대화 이력 수동 저장 (원본 질문 저장)
         if use_hyde and search_query != refined_message:
             chat_history = get_session_history(session_id)
-            chat_history.add_user_message(refined_message)
+            chat_history.add_user_message(user_message)  # 원본 질문 저장
             chat_history.add_ai_message(full_response)
 
     except Exception as e:
@@ -1054,7 +1107,7 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         if full_response:
             if use_hyde and search_query != refined_message:
                 chat_history = get_session_history(session_id)
-                chat_history.add_user_message(refined_message)
+                chat_history.add_user_message(user_message)  # 원본 질문 저장
                 chat_history.add_ai_message(full_response)
             yield f"\n\n⚠️ 응답 중 연결이 끊어졌습니다. 부분 응답만 표시됩니다."
         else:
