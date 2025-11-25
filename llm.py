@@ -514,7 +514,7 @@ def load_yearend_keywords():
 # =========================================
 # 주제 가드레일 (연말정산)
 # =========================================
-def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[bool, str, list[str]]:
+def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[bool, str, str]:
     """
     연말정산 주제 관련성 검증 (대화 이력 고려)
 
@@ -523,16 +523,16 @@ def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[b
         session_id: 세션 ID (대화 이력 조회용)
 
     Returns:
-        (검증 성공 여부, 에러 메시지, 추출된 키워드 리스트)
+        (검증 성공 여부, 에러 메시지, 이전 사용자 질문)
     """
     # 파일에서 키워드 로드
     yearend_keywords = load_yearend_keywords()
     question_lower = question.lower()
 
-    # 1. 현재 질문에 키워드가 있으면 바로 허용 (키워드 추출 불필요)
+    # 1. 현재 질문에 키워드가 있으면 바로 허용
     for keyword in yearend_keywords:
         if keyword in question_lower:
-            return True, "OK", []
+            return True, "OK", ""
 
     # 2. 일반적인 인사말이나 도움 요청은 허용
     greeting_patterns = [
@@ -548,7 +548,7 @@ def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[b
 
     for pattern in greeting_patterns:
         if re.search(pattern, question_lower):
-            return True, "OK", []
+            return True, "OK", ""
 
     # 3. 후속 질문 패턴 감지 (짧은 질문 + 대명사/지시어)
     followup_patterns = [
@@ -562,35 +562,101 @@ def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[b
     is_short_question = len(question) <= 20
     has_followup_pattern = any(re.search(pattern, question_lower) for pattern in followup_patterns)
 
-    # 짧고 후속 질문 패턴이 있으면 대화 이력에서 키워드 추출
+    # 짧고 후속 질문 패턴이 있으면 대화 이력에서 이전 질문 추출
     if is_short_question and has_followup_pattern and session_id:
         try:
-            # 대화 이력에서 최근 메시지 확인 (최대 3개)
+            # 대화 이력에서 최근 메시지 확인
             chat_history = get_session_history(session_id)
             recent_messages = chat_history.messages[-6:]  # 최근 3턴 (user + ai)
 
-            # 최근 대화에서 연말정산 키워드 추출
-            extracted_keywords = []
+            # 최근 대화에서 연말정산 키워드가 있는지 확인
+            previous_user_question = ""
             for msg in recent_messages:
                 msg_content = msg.content.lower()
-                for keyword in yearend_keywords:
-                    if keyword in msg_content and keyword not in extracted_keywords:
-                        extracted_keywords.append(keyword)
-                        # 최대 2개까지만 추출 (너무 많으면 질문이 부자연스러움)
-                        if len(extracted_keywords) >= 2:
-                            break
-                if len(extracted_keywords) >= 2:
-                    break
+                # 사용자 메시지만 확인
+                if hasattr(msg, 'type') and msg.type == 'human':
+                    # 키워드 체크
+                    has_keyword = any(keyword in msg_content for keyword in yearend_keywords)
+                    if has_keyword:
+                        previous_user_question = msg.content
+                        break
 
-            # 키워드를 찾았으면 후속 질문 허용
-            if extracted_keywords:
-                print(f"[INFO] 후속 질문 감지 - 추출된 키워드: {extracted_keywords}")
-                return True, "OK", extracted_keywords
+            # 이전 질문을 찾았으면 후속 질문 허용
+            if previous_user_question:
+                print(f"[INFO] 후속 질문 감지 - 이전 질문: {previous_user_question[:30]}...")
+                return True, "OK", previous_user_question
+
         except Exception as e:
             print(f"[WARN] 대화 이력 확인 실패: {e}")
 
     # 4. 모든 조건 불만족 시 거부
-    return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!", []
+    return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!", ""
+
+# =========================================
+# 후속 질문 병합 (이전 질문 + 후속 질문 → 자연스러운 완전한 질문)
+# =========================================
+@log_execution_time
+def merge_followup_question(previous_question: str, current_question: str) -> str:
+    """
+    이전 질문과 후속 질문을 자연스럽게 병합
+
+    Args:
+        previous_question: 이전 사용자 질문
+        current_question: 현재 후속 질문
+
+    Returns:
+        자연스럽게 재구성된 질문
+    """
+    try:
+        llm = get_llm()
+        template = """당신은 대화 맥락을 이해하고 질문을 재구성하는 전문가입니다.
+
+이전 질문과 후속 질문을 하나의 자연스럽고 명확한 질문으로 병합하세요.
+
+규칙:
+1. 이전 질문의 핵심 주제를 포함해야 합니다
+2. 후속 질문의 의도를 정확히 반영해야 합니다
+3. 완전한 하나의 질문 형태로 만들어야 합니다
+4. 자연스러운 한국어로 작성해야 합니다
+5. 불필요하게 길지 않고 간결해야 합니다
+
+예시 1:
+이전 질문: 연말정산 환급금 얼마 받을 수 있어?
+후속 질문: 항목은 뭐야?
+재구성: 연말정산 환급금을 확인하려면 어떤 항목을 봐야해?
+
+예시 2:
+이전 질문: 의료비 공제는 어떻게 받아?
+후속 질문: 그거 어디서 확인해?
+재구성: 의료비 공제는 어디서 확인해?
+
+예시 3:
+이전 질문: 간소화 자료 어떻게 가져와?
+후속 질문: 메뉴 어디 있어?
+재구성: 간소화 자료를 가져오는 메뉴는 어디 있어?
+
+이전 질문: {previous_question}
+후속 질문: {current_question}
+
+재구성된 질문:"""
+
+        prompt = ChatPromptTemplate.from_template(template)
+        chain = prompt | llm | StrOutputParser()
+
+        merged = chain.invoke({
+            "previous_question": previous_question,
+            "current_question": current_question
+        })
+
+        if merged and len(merged.strip()) > 0:
+            return merged.strip()
+
+    except Exception as e:
+        print(f"[WARN] 질문 병합 실패: {e}")
+        # 실패 시 현재 질문 반환
+        return current_question
+
+    return current_question
 
 # =========================================
 # 질문 보정
@@ -967,20 +1033,20 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if not session_id:
         raise ValueError("session_id is required.")
 
-    # 0. 연말정산 주제 가드레일 검증 (대화 이력 고려) + 키워드 추출
-    is_valid, error_msg, extracted_keywords = validate_yearend_tax_topic(user_message, session_id)
+    # 0. 연말정산 주제 가드레일 검증 (대화 이력 고려) + 이전 질문 추출
+    is_valid, error_msg, previous_question = validate_yearend_tax_topic(user_message, session_id)
     if not is_valid:
         yield error_msg
         return
 
-    # 0-1. 후속 질문이면 키워드를 병합하여 검색 쿼리 생성
+    # 0-1. 후속 질문이면 이전 질문과 병합하여 자연스러운 질문 생성
     enhanced_message = user_message
-    if extracted_keywords:
-        # 키워드를 질문 앞에 자연스럽게 추가 (검색 품질 향상)
-        keywords_text = " ".join(extracted_keywords)
-        enhanced_message = f"{keywords_text} {user_message}"
-        print(f"[INFO] 후속 질문 키워드 병합:")
-        print(f"  원본: {user_message}")
+    if previous_question:
+        # LLM을 사용해서 이전 질문과 후속 질문을 자연스럽게 병합
+        enhanced_message = merge_followup_question(previous_question, user_message)
+        print(f"[INFO] 후속 질문 병합:")
+        print(f"  이전: {previous_question}")
+        print(f"  후속: {user_message}")
         print(f"  병합: {enhanced_message}")
 
     # HyDE 기본값: 환경변수 사용
