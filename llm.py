@@ -550,20 +550,18 @@ def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[b
         if re.search(pattern, question_lower):
             return True, "OK", ""
 
-    # 3. 후속 질문 패턴 감지 (짧은 질문 + 대명사/지시어)
+    # 3. 후속 질문 패턴 감지 (대명사/지시어/맥락 의존 명사)
     followup_patterns = [
         r"^(그거|그건|그게|그럼|그러면)",  # 지시대명사
         r"(항목|내용|방법|절차|메뉴)",  # 맥락 의존 명사
         r"^(어디|어떻게|뭐|무엇|언제|왜)",  # 의문사로 시작
         r"(어디서|어떻게)\s*(해|하|봐|보)",  # 의문사 + 동사
-        r"^.{1,15}[?？]$",  # 15자 이하 짧은 질문
     ]
 
-    is_short_question = len(question) <= 20
     has_followup_pattern = any(re.search(pattern, question_lower) for pattern in followup_patterns)
 
-    # 짧고 후속 질문 패턴이 있으면 대화 이력에서 이전 질문 추출
-    if is_short_question and has_followup_pattern and session_id:
+    # 후속 질문 패턴이 있으면 대화 이력에서 이전 질문 추출
+    if has_followup_pattern and session_id:
         try:
             # 대화 이력에서 최근 메시지 확인
             chat_history = get_session_history(session_id)
