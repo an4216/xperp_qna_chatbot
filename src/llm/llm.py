@@ -31,7 +31,16 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from pydantic import ConfigDict
 
-from config import answer_examples
+from src.config.config import answer_examples
+from src.llm.prompts import (
+    FOLLOWUP_MERGE_PROMPT,
+    QUESTION_REFINE_PROMPT,
+    HISTORY_RETRIEVER_PROMPT,
+    SIMPLE_QA_PROMPT,
+    DETAILED_QA_PROMPT,
+    HYDE_TRANSFORM_PROMPT
+)
+from src.core.guardrails import validate_yearend_tax_topic
 
 # =========================================
 # 함수 실행시간 측정 데코레이터
@@ -512,85 +521,6 @@ def load_yearend_keywords():
     return _cached_yearend_keywords
 
 # =========================================
-# 주제 가드레일 (연말정산)
-# =========================================
-def validate_yearend_tax_topic(question: str, session_id: str = None) -> tuple[bool, str, str]:
-    """
-    연말정산 주제 관련성 검증 (대화 이력 고려)
-
-    Args:
-        question: 현재 질문
-        session_id: 세션 ID (대화 이력 조회용)
-
-    Returns:
-        (검증 성공 여부, 에러 메시지, 이전 사용자 질문)
-    """
-    # 파일에서 키워드 로드
-    yearend_keywords = load_yearend_keywords()
-    question_lower = question.lower()
-
-    # 1. 현재 질문에 키워드가 있으면 바로 허용
-    for keyword in yearend_keywords:
-        if keyword in question_lower:
-            return True, "OK", ""
-
-    # 2. 일반적인 인사말이나 도움 요청은 허용
-    greeting_patterns = [
-        r"^안녕",
-        r"^반가",
-        r"^도와",
-        r"^도움",
-        r"^문의",
-        r"^궁금",
-        r"어떻게\s*(사용|이용|하면|하는)",
-        r"^알려"
-    ]
-
-    for pattern in greeting_patterns:
-        if re.search(pattern, question_lower):
-            return True, "OK", ""
-
-    # 3. 후속 질문 패턴 감지 (대명사/지시어/맥락 의존 명사)
-    followup_patterns = [
-        r"^(그거|그건|그게|그럼|그러면)",  # 지시대명사
-        r"(항목|내용|방법|절차|메뉴)",  # 맥락 의존 명사
-        r"^(어디|어떻게|뭐|무엇|언제|왜)",  # 의문사로 시작
-        r"(어디서|어떻게)\s*(해|하|봐|보)",  # 의문사 + 동사
-    ]
-
-    has_followup_pattern = any(re.search(pattern, question_lower) for pattern in followup_patterns)
-
-    # 후속 질문 패턴이 있으면 대화 이력에서 이전 질문 추출
-    if has_followup_pattern and session_id:
-        try:
-            # 대화 이력에서 최근 메시지 확인
-            chat_history = get_session_history(session_id)
-            recent_messages = chat_history.messages[-6:]  # 최근 3턴 (user + ai)
-
-            # 최근 대화에서 연말정산 키워드가 있는지 확인
-            previous_user_question = ""
-            for msg in recent_messages:
-                msg_content = msg.content.lower()
-                # 사용자 메시지만 확인
-                if hasattr(msg, 'type') and msg.type == 'human':
-                    # 키워드 체크
-                    has_keyword = any(keyword in msg_content for keyword in yearend_keywords)
-                    if has_keyword:
-                        previous_user_question = msg.content
-                        break
-
-            # 이전 질문을 찾았으면 후속 질문 허용
-            if previous_user_question:
-                print(f"[INFO] 후속 질문 감지 - 이전 질문: {previous_user_question[:30]}...")
-                return True, "OK", previous_user_question
-
-        except Exception as e:
-            print(f"[WARN] 대화 이력 확인 실패: {e}")
-
-    # 4. 모든 조건 불만족 시 거부
-    return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!", ""
-
-# =========================================
 # 후속 질문 병합 (이전 질문 + 후속 질문 → 자연스러운 완전한 질문)
 # =========================================
 @log_execution_time
@@ -607,38 +537,7 @@ def merge_followup_question(previous_question: str, current_question: str) -> st
     """
     try:
         llm = get_llm()
-        template = """당신은 대화 맥락을 이해하고 질문을 재구성하는 전문가입니다.
-
-이전 질문과 후속 질문을 하나의 자연스럽고 명확한 질문으로 병합하세요.
-
-규칙:
-1. 이전 질문의 핵심 주제를 포함해야 합니다
-2. 후속 질문의 의도를 정확히 반영해야 합니다
-3. 완전한 하나의 질문 형태로 만들어야 합니다
-4. 자연스러운 한국어로 작성해야 합니다
-5. 불필요하게 길지 않고 간결해야 합니다
-
-예시 1:
-이전 질문: 연말정산 환급금 얼마 받을 수 있어?
-후속 질문: 항목은 뭐야?
-재구성: 연말정산 환급금을 확인하려면 어떤 항목을 봐야해?
-
-예시 2:
-이전 질문: 의료비 공제는 어떻게 받아?
-후속 질문: 그거 어디서 확인해?
-재구성: 의료비 공제는 어디서 확인해?
-
-예시 3:
-이전 질문: 간소화 자료 어떻게 가져와?
-후속 질문: 메뉴 어디 있어?
-재구성: 간소화 자료를 가져오는 메뉴는 어디 있어?
-
-이전 질문: {previous_question}
-후속 질문: {current_question}
-
-재구성된 질문:"""
-
-        prompt = ChatPromptTemplate.from_template(template)
+        prompt = ChatPromptTemplate.from_template(FOLLOWUP_MERGE_PROMPT)
         chain = prompt | llm | StrOutputParser()
 
         merged = chain.invoke({
@@ -673,31 +572,7 @@ def refine_question(question: str) -> str:
         keywords_str = ", ".join(keywords[:20])  # 처음 20개만 사용
 
         llm = get_llm()
-        template = """당신은 질문 보정 전문가입니다. 사용자의 연말정산 관련 질문을 더 명확하고 구체적으로 개선하세요.
-
- 규칙:
-    - 반드시 질문 형태로 출력한다. (답변 금지)
-    - 질문을 구체적으로 만들어라. ("어떻게", "왜 그런지", "제공된 문서들을 기반으로 설명해주세요" 등을 붙여라)
-    - 불필요하게 길게 풀지 말고, 한 문장 안에서 간결하지만 구체적으로 표현해라.
-    - 연말정산 관련 용어를 정확하게 사용해라.
-
-    예시:
-    입력: 신용카드 공제율이 어떻게 돼?
-    출력: 신용카드 공제율이 어떻게 되는지 제공된 문서들을 기반으로 설명해주세요.
-
-    입력: 의료비 공제는 어디서 확인해?
-    출력: 의료비 공제 내역은 어디서 확인하는지 제공된 문서들을 기반으로 알려주세요.
-
-    입력: 간소화자료 가져오기 안돼요
-    출력: 간소화자료 가져오기가 왜 안되는지 원인과 해결방법을 제공된 문서들에 기반해서 설명해주세요.
-
-연말정산 키워드: {keywords}
-
-원본 질문: {question}
-
-개선된 질문:"""
-
-        prompt = ChatPromptTemplate.from_template(template)
+        prompt = ChatPromptTemplate.from_template(QUESTION_REFINE_PROMPT)
         chain = prompt | llm | StrOutputParser()
 
         refined = chain.invoke({
@@ -721,15 +596,8 @@ def refine_question(question: str) -> str:
 def get_history_retriever():
     llm = get_llm()
     retriever = get_retriever()
-    system_prompt = (
-        "Given a chat history and the latest user question "
-        "which might reference context in the chat history, "
-        "formulate a standalone question which can be understood "
-        "without the chat history. Do NOT answer the question, "
-        "just reformulate it if needed and otherwise return it as is."
-    )
     prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
+        ("system", HISTORY_RETRIEVER_PROMPT),
         MessagesPlaceholder("chat_history"),
         ("human", "{input}")
     ])
@@ -737,34 +605,8 @@ def get_history_retriever():
 
 def _get_simple_prompt():
     """단순 질문용 프롬프트 (간단한 답변만)"""
-    system_prompt = (
-        """
-        당신은 Xperp 연말정산 프로그램에 대한 전문 상담 챗봇입니다.
-        사용자의 질문에 대해 문서 기반으로 **간단하고 명확하게** 답변하세요.
-
-        답변 규칙:
-        - 질문에 대한 핵심 정보만 간결하게 제공하세요
-        - 불필요한 섹션 구조(### 알려드릴게요 등)는 사용하지 마세요
-        - 전화번호, 주소, 이메일 등은 그대로 제공하세요
-        - 1-3문장 이내로 간단히 답변하세요
-        - 출처가 있다면 간단히 표기하세요
-
-        예시:
-        질문: 고객센터 전화번호 알려줘
-        답변: 고객센터 전화번호는 1588-1234입니다.
-
-        질문: 영업시간은?
-        답변: 평일 오전 9시부터 오후 6시까지입니다.
-
-        ✅ 문서에 정보가 없는 경우:
-        - '죄송합니다. 해당 정보를 찾을 수 없습니다. XpERP 관련 다른 질문이 있으시면 말씀해주세요.'
-
-         {context}
-        """
-    )
-
     return ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
+        ("system", SIMPLE_QA_PROMPT),
         MessagesPlaceholder("chat_history"),
         ("human", "{input}")
     ])
@@ -778,67 +620,8 @@ def _get_detailed_prompt():
     example_prompt = ChatPromptTemplate.from_messages([("human", "{input}"), ("ai", "{answer}")])
     few_shot = FewShotChatMessagePromptTemplate(example_prompt=example_prompt, examples=examples)
 
-    system_prompt = (
-            """
-            당신은 Xperp 연말정산 프로그램에 대한 전문 상담 챗봇입니다.
-            사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.
-            당신의 임무는 아래 문서를 기반으로 가장 정확하고 실무적인 답변을 제공하는 것입니다:
-            1) 질문(Q)과 답변(A), 키워드(T)가 포함된 QnA 문서
-            2) PDF 매뉴얼 및 기타 텍스트 설명 문서
-
-            답변 구성 방식 :
-           - 사용자의 질문이 txt 문서에 존재하거나 키워드를 참고하여 유사한 항목이 있다면, 해당 A 내용을 우선적으로 정리하여 답변의 맨 처음에 제공합니다.
-           - 이후 PDF 매뉴얼 등 기타 문서를 참고하여 보완 설명을 이어서 작성합니다.
-           - 문서에 따라 아래 형식을 기준으로 정돈된 답변을 가독성을 고려하여 작성하세요:
-
-            답변 작성 규칙:
-            - 답변 템플릿은 다음 중 하나를 선택하세요:
-              1) [알려드릴게요 + 짧게 요약하면] → 단순 개념/이유 설명
-              2) [알려드릴게요 + 이렇게 해보세요] → 메뉴 경로나 절차 안내
-              3) [알려드릴게요 + 짧게 요약하면 + 꼭 알아두세요] → 오류/주의사항 관련
-            - 질문 성격에 따라 가장 적절한 템플릿을 사용하세요.
-            - 불필요한 섹션은 포함하지 마세요.
-
-            ### 각 섹션 작성 상세 지침:
-            - `### 알려드릴게요`
-              - 문서를 기반으로 질문의 개념, 목적, 동작 원리를 상세히 설명합니다.
-              - 실무자가 오해할 수 있는 지점이나 자주 묻는 상황도 함께 안내합니다.
-              - 한 문장이 끝나면 줄바꿈을 통해 가독성을 높여주세요.
-
-            - `### 짧게 요약하면`
-              - 핵심 개념을 1~2줄 이내로 정리합니다.
-
-            - `### 이렇게 해보세요`
-              1. 메뉴 경로, 설정 방법, 입력 절차를 문서에 있는 내용으로 단계별로 작성하세요.
-              2. 화면 위치 정보도 가능한 경우 포함합니다.
-              3. 메뉴 경로는 절대 유추하지말고 문서에 있는 내용으로만 답변해주세요.
-
-            - `### 꼭 알아두세요`
-              - 실무 중 자주 발생하는 실수나 예외 상황, 기능 제약사항 등을 구체적으로 기술합니다.
-              - 사용자가 놓치기 쉬운 조건이나 확인 항목도 함께 제시하세요.
-
-            ### 매뉴얼 참조 출력 지침:
-            - 반드시 'context'의 문서 metadata(source/page)에서만 출처를 가져오세요.
-            - few-shot 예시 안의 출처/페이지 표기는 무시하세요.
-            - 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.
-
-            출력 형식 규칙(매우 중요):
-            - 반드시 Markdown을 사용하세요.
-            - 각 섹션 제목은 무조건 `### 제목` 형식을 사용하세요.
-            - 본문에는 `**굵게**` 마크다운을 사용하지 마세요. (제만 굵게)
-            - 한 문장이 끝나면 줄바꿈을 통해 가독성을 높이세요.
-
-            ✅ 질문과 직접 관련된 XPERP 정보가 없거나, 문서에서 근거를 찾을 수 없는 경우:
-            - '죄송합니다. 해당 내용은 현재 안내드릴 수 있는 범위를 벗어난 항목입니다.\n
-            본 챗봇 서비스는 XpERP 사용과 관련한 답변만 제공하도록 설계되어 있습니다.\n
-            XpERP와 관련한 질의가 있으시면 다시 질문해주시길 바랍니다.'
-
-             {context}
-            """
-    )
-
     return ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
+        ("system", DETAILED_QA_PROMPT),
         few_shot,
         MessagesPlaceholder("chat_history"),
         ("human", "{input}")
@@ -998,12 +781,7 @@ def hyde_transform(question: str, max_retries: int = 2) -> str:
     llm = get_llm()
 
     # 간결한 프롬프트로 빠른 생성
-    prompt = f"""Xperp 프로그램 전문가로서 다음 질문에 대한 간단한 가상 답변을 작성하세요.
-실제 정보가 아니어도 괜찮으며, 매뉴얼 형식만 맞추면 됩니다.
-
-질문: {question}
-
-답변:"""
+    prompt = HYDE_TRANSFORM_PROMPT.format(question=question)
 
     for attempt in range(max_retries):
         try:
@@ -1032,7 +810,12 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         raise ValueError("session_id is required.")
 
     # 0. 연말정산 주제 가드레일 검증 (대화 이력 고려) + 이전 질문 추출
-    is_valid, error_msg, previous_question = validate_yearend_tax_topic(user_message, session_id)
+    is_valid, error_msg, previous_question = validate_yearend_tax_topic(
+        user_message,
+        session_id,
+        keyword_loader=load_yearend_keywords,
+        session_history_getter=get_session_history
+    )
     if not is_valid:
         yield error_msg
         return
