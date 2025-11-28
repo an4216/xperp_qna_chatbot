@@ -221,7 +221,21 @@
               isFirstChunk = false;
             }
 
-            botMessage += decoder.decode(value, { stream: true });
+            const chunk = decoder.decode(value, { stream: true });
+
+            // ✅ UUID 추출 로직 - wrapper에 data attribute로 저장
+            if (chunk.includes('__UUID:')) {
+              const uuidMatch = chunk.match(/__UUID:([a-f0-9-]+)/);
+              if (uuidMatch) {
+                const uuid = uuidMatch[1];
+                wrapper.dataset.conversationUuid = uuid;  // ✅ 각 메시지 컨테이너에 UUID 저장
+                console.log('Conversation UUID:', uuid);
+                // UUID 부분은 화면에 표시하지 않음
+                continue;
+              }
+            }
+
+            botMessage += chunk;
             botDiv.innerHTML = marked.parse(botMessage);
             scrollToBottom();
           }
@@ -305,10 +319,19 @@
           likeButton.classList.add('status-selected');
           if (dislikeButton) dislikeButton.remove();
 
+          // ✅ wrapper에서 UUID 읽기
+          const conversationUuid = wrapper.dataset.conversationUuid;
+          if (!conversationUuid) {
+            console.error("UUID가 없어 피드백을 전송할 수 없습니다.");
+            return;
+          }
+
           const payload = {
+            conversation_uuid: conversationUuid,  // ✅ UUID 포함
             message: lastUserMessage,
             response: responseText,
             feedback: "up",
+            name: "",  // ✅ up 피드백은 이름 없음
             timestamp: new Date().toISOString()
           };
           try {
@@ -368,6 +391,14 @@
             return;
           }
 
+          // ✅ wrapper에서 UUID 읽기
+          const conversationUuid = wrapper.dataset.conversationUuid;
+          if (!conversationUuid) {
+            console.error("UUID가 없어 피드백을 전송할 수 없습니다.");
+            alert("오류: 피드백을 전송할 수 없습니다. 페이지를 새로고침하고 다시 시도해주세요.");
+            return;
+          }
+
           let displayReason = reason;
           if (reason.includes('기타')) {
             let shortComment = comment;
@@ -378,6 +409,7 @@
           }
 
           const payload = {
+            conversation_uuid: conversationUuid,  // ✅ UUID 포함
             message: lastUserMessage,
             response: responseText,
             feedback: "down",

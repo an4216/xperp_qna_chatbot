@@ -7,16 +7,16 @@ import uvicorn
 from src.llm.llm import get_ai_response, get_cache_info, get_llm, get_retriever, get_reranker, load_yearend_keywords, USE_RERANK
 import asyncio
 import json, os, time, re
-from httpx import AsyncClient, HTTPError
 from src.api.middleware.rate_limiter import RateLimiter
 from src.core.guardrails import validate_input
+from src.core.database import execute_query
+from datetime import datetime
 
 
 # FastAPI 앱 생성
 app = FastAPI()
 # 환경변수 로드
 load_dotenv()
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 # =========================================
 # 가드레일 설정
@@ -119,10 +119,43 @@ async def chat(message: str = Form(...), session_id: str = Form(None)):
     # 4. AI 응답 생성
     ai_response_generator = get_ai_response(message, session_id=session_id)
 
+    # 전체 응답 수집용 변수
+    full_response = ""
+
     async def event_stream():
+        nonlocal full_response
+
+        # 답변 스트리밍
         for chunk in ai_response_generator:
+            full_response += chunk
             yield chunk
             await asyncio.sleep(0.01)
+
+        # 스트리밍 완료 후 DB에 저장
+        try:
+            now = datetime.now()
+            user_id = session_id[:20] if session_id else "anonymous"
+
+            # INSERT 쿼리 (uuid는 DB에서 자동 생성됨)
+            query = """
+                INSERT INTO feedback
+                (user_id, message, response, created_at)
+                VALUES (%s, %s, %s, %s)
+                RETURNING uuid
+            """
+            params = (user_id, message, full_response, now)
+
+            # UUID 반환 받기
+            from src.core.database import fetch_one
+            result = fetch_one(query, params)
+
+            if result:
+                conversation_uuid = str(result[0])
+                # UUID를 특수 형식으로 전달 (프론트엔드에서 파싱)
+                yield f"\n__UUID:{conversation_uuid}"
+
+        except Exception as e:
+            print(f"[ERROR] 대화 저장 실패: {e}")
 
     return StreamingResponse(event_stream(), media_type="text/plain")
 
@@ -151,84 +184,46 @@ async def chat_test(message: str = Form(...), session_id: str = Form("test-sessi
         chunks.append(chunk)
     return PlainTextResponse("".join(chunks))
 # ✅ 사용자 피드백 저장 API
-# ✅ 사용자 피드백 저장 API
 @app.post("/feedback")
 async def feedback(data: dict = Body(...)):
 
-    # 1) 피드백 로그 파일 저장
-    os.makedirs("logs", exist_ok=True)
-    log_path = "logs/feedback.jsonl"
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+    # 1) conversation_uuid 필수 확인
+    conversation_uuid = data.get("conversation_uuid")
+    if not conversation_uuid:
+        return {"status": "error", "message": "conversation_uuid is required"}
 
-    # 2) 👎 down 피드백이면 Slack 알림 전송
-    if data.get("feedback") == "down" and SLACK_WEBHOOK_URL:
-        user_name = data.get("name", "익명")   # ✅ 이름 필드 (없으면 '익명')
-        message = {
-            "blocks": [
-                {
-                    "type": "header",
-                    "text": {"type": "plain_text", "text": "⚠️ Xperp 챗봇 Down Feedback 발생"}
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*🙋 질문자:* {user_name}\n*🙋 질문:*\n>{data.get('message')}"
-                    },
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*💬 답변 (요약):*\n>{data.get('response')[:300]}..."
-                    },
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":warning: *사유:*\n```{data.get('reason', '사유 미작성')}```"
-                    },
-                },
-                {   # ✅ 코멘트 추가
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"✍️ *코멘트:*\n>{data.get('comment', '코멘트 없음')}"
-                    },
-                },
-                {
-                    "type": "context",
-                    "elements": [
-                        {"type": "mrkdwn", "text": ":loudspeaker: <!channel> 모든 분 확인 바랍니다."}
-                    ],
-                },
-            ],
-        }
+    # 2) 피드백 데이터베이스에 업데이트
+    try:
+        now = datetime.now()
+        user_name = data.get("name", "")  # ✅ 빈 값 허용 (up 피드백은 이름 없음)
 
-        async def send_slack_webhook(payload: dict) -> None:
-            """Slack Webhook을 비동기로 전송하면서 기본 재시도를 수행합니다."""
-            async with AsyncClient(timeout=5.0) as client:
-                for attempt in range(3):
-                    try:
-                        response = await client.post(SLACK_WEBHOOK_URL, json=payload)
-                        response.raise_for_status()
-                        return
-                    except HTTPError as exc:
-                        if attempt == 2:
-                            print(f"Slack 전송 실패: {exc}")
-                        else:
-                            await asyncio.sleep(0.5 * (attempt + 1))
-                            continue
-                    except Exception as exc:
-                        if attempt == 2:
-                            print(f"Slack 전송 예기치 못한 실패: {exc}")
-                        else:
-                            await asyncio.sleep(0.5 * (attempt + 1))
-                            continue
-                    # 마지막 시도까지 실패하면 루프 종료
-                    break
+        # UPDATE 쿼리 (uuid 기준으로 레코드 업데이트)
+        query = """
+            UPDATE feedback
+            SET feedback = %s,
+                reason = %s,
+                comment = %s,
+                name = %s,
+                timestamp = %s,
+                feedback_updated_at = %s
+            WHERE uuid = %s
+        """
+        params = (
+            data.get("feedback"),
+            data.get("reason"),
+            data.get("comment"),
+            user_name,
+            now,
+            now,
+            conversation_uuid
+        )
 
-        await send_slack_webhook(message)
+        success = execute_query(query, params)
+        if not success:
+            print(f"[ERROR] 피드백 DB 업데이트 실패: {data}")
+            return {"status": "error", "message": "Database update failed"}
+    except Exception as e:
+        print(f"[ERROR] 피드백 업데이트 중 오류 발생: {e}")
+        return {"status": "error", "message": str(e)}
+
     return {"status": "ok"}
