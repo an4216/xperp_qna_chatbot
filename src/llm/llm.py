@@ -232,35 +232,99 @@ def get_reranker():
 # Bedrock Knowledge Base Retriever
 # =========================================
 
-class RerankRetriever(BaseRetriever):
-    """Reranking을 적용하는 Retriever 래퍼"""
+def get_bedrock_agent_client():
+    """타임아웃 설정이 적용된 Bedrock Agent 클라이언트 생성"""
+    from botocore.config import Config
+
+    config = Config(
+        connect_timeout=10,  # 연결 타임아웃: 10초
+        read_timeout=60,     # 읽기 타임아웃: 60초
+        retries={
+            'max_attempts': 3,
+            'mode': 'adaptive'
+        }
+    )
+
+    return boto3.client(
+        service_name='bedrock-agent-runtime',
+        region_name=AWS_REGION,
+        config=config
+    )
+
+class RetryRetriever(BaseRetriever):
+    """재시도 로직을 적용하는 기본 Retriever 래퍼"""
 
     base_retriever: Any
-    reranker: Any
-    search_k: int
+    max_retries: int = 3
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
     ) -> List[Document]:
-        """검색 후 재순위화"""
-        # 1차 검색 (더 많은 문서) - 재시도 로직 포함
+        """재시도 로직이 적용된 검색"""
         search_start = time.perf_counter()
         docs = []
-        max_retries = 3
 
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 docs = self.base_retriever.invoke(query)
                 break  # 성공 시 루프 종료
             except Exception as e:
                 error_type = type(e).__name__
                 error_msg = str(e)
-                print(f"[ERROR] Base retriever 호출 실패 (시도 {attempt + 1}/{max_retries}): {error_type} - {error_msg}")
+                print(f"[ERROR] Retriever 호출 실패 (시도 {attempt + 1}/{self.max_retries}): {error_type} - {error_msg}")
 
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # 지수 백오프: 1초, 2초
+                if attempt < self.max_retries - 1:
+                    wait_time = 2 ** attempt  # 지수 백오프: 1초, 2초, 4초
+                    print(f"[INFO] {wait_time}초 후 재시도합니다...")
+                    time.sleep(wait_time)
+                else:
+                    # 모든 재시도 실패 시 빈 문서 리스트 반환
+                    print(f"[WARN] 모든 재시도 실패. 빈 문서 리스트 반환합니다.")
+                    docs = []
+
+        search_time = time.perf_counter() - search_start
+        print(f"[TIMING] 벡터검색: {search_time*1000:.0f}ms")
+
+        return docs
+
+    async def _aget_relevant_documents(
+        self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
+    ) -> List[Document]:
+        """비동기 검색"""
+        return await asyncio.to_thread(self._get_relevant_documents, query, run_manager=run_manager)
+
+class RerankRetriever(BaseRetriever):
+    """Reranking을 적용하는 Retriever 래퍼 (재시도 로직 포함)"""
+
+    base_retriever: Any
+    reranker: Any
+    search_k: int
+    max_retries: int = 3
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
+    ) -> List[Document]:
+        """검색 후 재순위화 (재시도 로직 포함)"""
+        # 1차 검색 (더 많은 문서) - 재시도 로직 포함
+        search_start = time.perf_counter()
+        docs = []
+
+        for attempt in range(self.max_retries):
+            try:
+                docs = self.base_retriever.invoke(query)
+                break  # 성공 시 루프 종료
+            except Exception as e:
+                error_type = type(e).__name__
+                error_msg = str(e)
+                print(f"[ERROR] Base retriever 호출 실패 (시도 {attempt + 1}/{self.max_retries}): {error_type} - {error_msg}")
+
+                if attempt < self.max_retries - 1:
+                    wait_time = 2 ** attempt  # 지수 백오프: 1초, 2초, 4초
+                    print(f"[INFO] {wait_time}초 후 재시도합니다...")
                     time.sleep(wait_time)
                 else:
                     # 모든 재시도 실패 시 빈 문서 리스트 반환
@@ -303,6 +367,9 @@ def get_retriever():
     if _cached_retriever is None:
         print(f"[INFO] Bedrock Knowledge Base 사용: {BEDROCK_KB_ID}")
 
+        # 타임아웃 설정이 적용된 클라이언트 생성
+        bedrock_agent_client = get_bedrock_agent_client()
+
         # AmazonKnowledgeBasesRetriever 생성
         base_retriever = AmazonKnowledgeBasesRetriever(
             knowledge_base_id=BEDROCK_KB_ID,
@@ -311,7 +378,8 @@ def get_retriever():
                     "numberOfResults": BEDROCK_KB_RESULTS
                 }
             },
-            region_name=AWS_REGION
+            region_name=AWS_REGION,
+            client=bedrock_agent_client  # 타임아웃 설정된 클라이언트 주입
         )
 
         # Reranking 적용 (선택적)
@@ -321,11 +389,15 @@ def get_retriever():
             _cached_retriever = RerankRetriever(
                 base_retriever=base_retriever,
                 reranker=reranker,
-                search_k=BEDROCK_KB_RESULTS
+                search_k=BEDROCK_KB_RESULTS,
+                max_retries=3
             )
         else:
-            print(f"[INFO] Bedrock KB 단독 사용 (results: {BEDROCK_KB_RESULTS})")
-            _cached_retriever = base_retriever
+            print(f"[INFO] Bedrock KB 단독 사용 (results: {BEDROCK_KB_RESULTS}) + 재시도 로직")
+            _cached_retriever = RetryRetriever(
+                base_retriever=base_retriever,
+                max_retries=3
+            )
 
     return _cached_retriever
 
