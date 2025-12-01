@@ -943,9 +943,16 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if not session_id:
         raise ValueError("session_id is required.")
 
-    # 0. 연말정산 주제 가드레일 검증 (대화 이력 고려) + 이전 질문 추출
+    # 0. 오타 보정 (가드레일 검증 전에 먼저 수행)
+    typo_corrected_input = correct_typos(user_message)
+    if typo_corrected_input != user_message:
+        print(f"[INFO] ✓ 입력 오타 보정")
+        print(f"  원본: {user_message}")
+        print(f"  보정: {typo_corrected_input}")
+
+    # 1. 연말정산 주제 가드레일 검증 (오타 보정된 질문으로 검증) + 이전 질문 추출
     is_valid, error_msg, previous_question = validate_yearend_tax_topic(
-        user_message,
+        typo_corrected_input,  # 오타 보정된 질문으로 검증
         session_id,
         keyword_loader=load_yearend_keywords,
         session_history_getter=get_session_history
@@ -954,50 +961,33 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         yield error_msg
         return
 
-    # 0-1. 후속 질문이면 이전 질문과 병합하여 자연스러운 질문 생성
-    enhanced_message = user_message
+    # 2. 후속 질문이면 이전 질문과 병합하여 자연스러운 질문 생성
+    enhanced_message = typo_corrected_input
     if previous_question:
         # LLM을 사용해서 이전 질문과 후속 질문을 자연스럽게 병합
-        enhanced_message = merge_followup_question(previous_question, user_message)
+        enhanced_message = merge_followup_question(previous_question, typo_corrected_input)
         print(f"[INFO] 후속 질문 병합:")
         print(f"  이전: {previous_question}")
-        print(f"  후속: {user_message}")
+        print(f"  후속: {typo_corrected_input}")
         print(f"  병합: {enhanced_message}")
 
     # HyDE 기본값: 환경변수 사용
     if use_hyde is None:
         use_hyde = USE_HYDE
 
-    # 1. 오타 보정 (키워드 기반 유사도 매칭)
-    typo_corrected_message = correct_typos(enhanced_message)
-
-    # 2. 질문 보정 (키워드가 병합된 질문으로 보정)
-    refined_message = refine_question(typo_corrected_message)
+    # 3. 질문 보정 (키워드가 병합된 질문으로 보정)
+    refined_message = refine_question(enhanced_message)
 
     # 질문 보정 결과 로그
-    if typo_corrected_message != enhanced_message and refined_message != typo_corrected_message:
-        # 오타 보정 + 질문 보정 모두 적용
-        print(f"[INFO] ✓ 오타 보정 및 질문 보정 완료")
-        print(f"  원본: {enhanced_message}")
-        print(f"  오타보정: {typo_corrected_message}")
-        print(f"  최종보정: {refined_message}")
-    elif typo_corrected_message != enhanced_message:
-        # 오타 보정만 적용
-        print(f"[INFO] ✓ 오타 보정 완료")
-        print(f"  원본: {enhanced_message}")
-        print(f"  보정: {typo_corrected_message}")
-    elif refined_message != typo_corrected_message:
-        # 질문 보정만 적용
+    if refined_message != enhanced_message:
         print(f"[INFO] ✓ 질문 보정 완료")
-        print(f"  입력: {typo_corrected_message}")
+        print(f"  입력: {enhanced_message}")
         print(f"  보정: {refined_message}")
-    else:
-        print(f"[INFO] 보정 미적용 (원본 사용)")
 
-    # 3. 질문 유형 분류 (단순 vs 상세)
+    # 4. 질문 유형 분류 (단순 vs 상세)
     question_type = classify_question_type(refined_message)
 
-    # 4. HyDE 적용 여부 판단 및 실행
+    # 5. HyDE 적용 여부 판단 및 실행
     search_query = refined_message  # 기본값: 보정된 질문으로 검색
 
     if use_hyde and should_use_hyde(refined_message):
@@ -1013,7 +1003,7 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
             print(f"[WARN] HyDE 변환 실패, 보정된 질문 사용: {e}")
             search_query = refined_message
 
-    # 5. RAG 체인 실행
+    # 6. RAG 체인 실행
     # HyDE를 사용한 경우, 검색은 가상 답변으로 하되 최종 응답은 보정된 질문 기반
 
     if use_hyde and search_query != refined_message:
