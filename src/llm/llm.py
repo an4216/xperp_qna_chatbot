@@ -593,6 +593,68 @@ def load_yearend_keywords():
     return _cached_yearend_keywords
 
 # =========================================
+# 오타 보정 (키워드 기반 유사도 매칭)
+# =========================================
+@log_execution_time
+def correct_typos(question: str, similarity_threshold: int = 85) -> str:
+    """
+    질문에서 연말정산 키워드의 오타를 자동으로 보정
+
+    Args:
+        question: 사용자 질문
+        similarity_threshold: 유사도 임계값 (0-100, 기본값 85)
+
+    Returns:
+        오타가 보정된 질문
+
+    Example:
+        "현금여수증 공제받을 수 있나요?" → "현금영수증 공제받을 수 있나요?"
+    """
+    keywords = load_yearend_keywords()
+    corrected_question = question
+    corrections_made = []
+
+    # 질문을 단어로 분리 (공백 및 특수문자 기준)
+    import re
+    words = re.findall(r'[가-힣a-zA-Z0-9]+', question)
+
+    for word in words:
+        # 2글자 이상인 단어만 검사 (너무 짧은 단어는 오탐 가능성 높음)
+        if len(word) < 2:
+            continue
+
+        # 정확히 일치하는 키워드는 건너뛰기
+        if word in keywords:
+            continue
+
+        # 각 키워드와 유사도 계산
+        best_match = None
+        best_score = 0
+
+        for keyword in keywords:
+            # 단어 길이 차이가 너무 크면 건너뛰기 (성능 최적화)
+            if abs(len(word) - len(keyword)) > 3:
+                continue
+
+            # 유사도 계산 (ratio: 0-100)
+            score = fuzz.ratio(word, keyword)
+
+            if score > best_score and score >= similarity_threshold:
+                best_score = score
+                best_match = keyword
+
+        # 오타로 판단되면 교체
+        if best_match:
+            corrected_question = corrected_question.replace(word, best_match)
+            corrections_made.append(f"{word} → {best_match} (유사도: {best_score}%)")
+
+    # 보정 내역 로그 출력
+    if corrections_made:
+        print(f"[INFO] 오타 보정: {', '.join(corrections_made)}")
+
+    return corrected_question
+
+# =========================================
 # 후속 질문 병합 (이전 질문 + 후속 질문 → 자연스러운 완전한 질문)
 # =========================================
 @log_execution_time
@@ -906,21 +968,36 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if use_hyde is None:
         use_hyde = USE_HYDE
 
-    # 1. 질문 보정 (키워드가 병합된 질문으로 보정)
-    refined_message = refine_question(enhanced_message)
+    # 1. 오타 보정 (키워드 기반 유사도 매칭)
+    typo_corrected_message = correct_typos(enhanced_message)
+
+    # 2. 질문 보정 (키워드가 병합된 질문으로 보정)
+    refined_message = refine_question(typo_corrected_message)
 
     # 질문 보정 결과 로그
-    if refined_message != enhanced_message:
-        print(f"[INFO] ✓ 질문이 보정되었습니다")
-        print(f"  입력: {enhanced_message}")
+    if typo_corrected_message != enhanced_message and refined_message != typo_corrected_message:
+        # 오타 보정 + 질문 보정 모두 적용
+        print(f"[INFO] ✓ 오타 보정 및 질문 보정 완료")
+        print(f"  원본: {enhanced_message}")
+        print(f"  오타보정: {typo_corrected_message}")
+        print(f"  최종보정: {refined_message}")
+    elif typo_corrected_message != enhanced_message:
+        # 오타 보정만 적용
+        print(f"[INFO] ✓ 오타 보정 완료")
+        print(f"  원본: {enhanced_message}")
+        print(f"  보정: {typo_corrected_message}")
+    elif refined_message != typo_corrected_message:
+        # 질문 보정만 적용
+        print(f"[INFO] ✓ 질문 보정 완료")
+        print(f"  입력: {typo_corrected_message}")
         print(f"  보정: {refined_message}")
     else:
-        print(f"[INFO] 질문 보정 미적용 (원본 사용)")
+        print(f"[INFO] 보정 미적용 (원본 사용)")
 
-    # 2. 질문 유형 분류 (단순 vs 상세)
+    # 3. 질문 유형 분류 (단순 vs 상세)
     question_type = classify_question_type(refined_message)
 
-    # 3. HyDE 적용 여부 판단 및 실행
+    # 4. HyDE 적용 여부 판단 및 실행
     search_query = refined_message  # 기본값: 보정된 질문으로 검색
 
     if use_hyde and should_use_hyde(refined_message):
@@ -936,7 +1013,7 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
             print(f"[WARN] HyDE 변환 실패, 보정된 질문 사용: {e}")
             search_query = refined_message
 
-    # 4. RAG 체인 실행
+    # 5. RAG 체인 실행
     # HyDE를 사용한 경우, 검색은 가상 답변으로 하되 최종 응답은 보정된 질문 기반
 
     if use_hyde and search_query != refined_message:

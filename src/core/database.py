@@ -34,12 +34,12 @@ _connection_pool: Optional[pool.SimpleConnectionPool] = None
 # =========================================
 # 1. 연결 풀 관리
 # =========================================
-def get_connection_pool() -> pool.SimpleConnectionPool:
+def get_connection_pool() -> Optional[pool.SimpleConnectionPool]:
     """
     PostgreSQL 연결 풀 반환 (싱글톤 패턴)
 
     Returns:
-        psycopg2 연결 풀 객체
+        psycopg2 연결 풀 객체 (연결 실패 시 None)
     """
     global _connection_pool
 
@@ -56,8 +56,9 @@ def get_connection_pool() -> pool.SimpleConnectionPool:
             )
             print(f"[INFO] PostgreSQL 연결 풀 생성 완료 ({DB_HOST}:{DB_PORT}/{DB_NAME})")
         except Error as e:
-            print(f"[ERROR] PostgreSQL 연결 풀 생성 실패: {e}")
-            raise
+            print(f"[WARN] PostgreSQL 연결 실패 (DB 기능 비활성화됨): {e}")
+            print(f"[INFO] 챗봇은 정상 작동하며, 피드백 저장만 비활성화됩니다.")
+            return None
 
     return _connection_pool
 
@@ -74,9 +75,15 @@ def get_db_connection():
             results = cursor.fetchall()
 
     Yields:
-        psycopg2 Connection 객체
+        psycopg2 Connection 객체 (연결 실패 시 None)
     """
     connection_pool = get_connection_pool()
+
+    # 연결 풀이 없으면 None 반환 (DB 비활성화 상태)
+    if connection_pool is None:
+        yield None
+        return
+
     conn = None
 
     try:
@@ -116,6 +123,16 @@ def test_connection() -> Tuple[bool, str]:
     """
     try:
         with get_db_connection() as conn:
+            # DB가 비활성화된 경우
+            if conn is None:
+                error_message = (
+                    f"[DISABLED] PostgreSQL 연결 비활성화됨\n"
+                    f"   - 호스트: {DB_HOST}:{DB_PORT}\n"
+                    f"   - 데이터베이스: {DB_NAME}\n"
+                    f"   - 상태: DB 없이 서비스 가능"
+                )
+                return False, error_message
+
             cursor = conn.cursor()
 
             # PostgreSQL 버전 확인
@@ -168,6 +185,11 @@ def execute_query(query: str, params: Optional[Tuple] = None) -> bool:
     """
     try:
         with get_db_connection() as conn:
+            # DB가 비활성화된 경우
+            if conn is None:
+                print(f"[WARN] DB 비활성화 상태 - 쿼리 실행 생략")
+                return False
+
             cursor = conn.cursor()
             cursor.execute(query, params)
             conn.commit()
@@ -192,6 +214,11 @@ def fetch_one(query: str, params: Optional[Tuple] = None) -> Optional[Tuple]:
     """
     try:
         with get_db_connection() as conn:
+            # DB가 비활성화된 경우
+            if conn is None:
+                print(f"[WARN] DB 비활성화 상태 - 쿼리 실행 생략")
+                return None
+
             cursor = conn.cursor()
             cursor.execute(query, params)
             result = cursor.fetchone()
@@ -221,6 +248,11 @@ def fetch_all(query: str, params: Optional[Tuple] = None) -> List[Tuple]:
     """
     try:
         with get_db_connection() as conn:
+            # DB가 비활성화된 경우
+            if conn is None:
+                print(f"[WARN] DB 비활성화 상태 - 쿼리 실행 생략")
+                return []
+
             cursor = conn.cursor()
             cursor.execute(query, params)
             results = cursor.fetchall()
@@ -244,6 +276,11 @@ def fetch_all_dict(query: str, params: Optional[Tuple] = None) -> List[Dict[str,
     """
     try:
         with get_db_connection() as conn:
+            # DB가 비활성화된 경우
+            if conn is None:
+                print(f"[WARN] DB 비활성화 상태 - 쿼리 실행 생략")
+                return []
+
             cursor = conn.cursor()
             cursor.execute(query, params)
 
@@ -275,6 +312,11 @@ def table_exists(table_name: str) -> bool:
     Returns:
         존재 여부
     """
+    # DB가 비활성화된 경우
+    connection_pool = get_connection_pool()
+    if connection_pool is None:
+        return False
+
     query = """
         SELECT EXISTS (
             SELECT FROM information_schema.tables
@@ -302,11 +344,18 @@ def get_database_info() -> Dict[str, Any]:
         "database": DB_NAME,
         "user": DB_USER,
         "tables": [],
-        "table_count": 0
+        "table_count": 0,
+        "connected": False
     }
 
     try:
         with get_db_connection() as conn:
+            # DB가 비활성화된 경우
+            if conn is None:
+                info["connected"] = False
+                return info
+
+            info["connected"] = True
             cursor = conn.cursor()
 
             # 테이블 목록 조회
