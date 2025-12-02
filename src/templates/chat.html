@@ -60,6 +60,35 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
+      // ============================================
+      // userId 파라미터 검증 (클라이언트 측 보안)
+      // ============================================
+      const urlParams = new URLSearchParams(window.location.search);
+      const userId = urlParams.get('userId');
+
+      // userId가 없으면 접근 차단
+      if (!userId) {
+        alert('접근이 거부되었습니다.\n\nuserId 파라미터가 필요합니다.\n\n예시: /?userId=your_user_id');
+        window.close();
+        // window.close()가 작동하지 않을 경우 빈 페이지로 리디렉션
+        setTimeout(() => {
+          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2><p>userId 파라미터가 필요합니다.</p></div>';
+        }, 100);
+        return;
+      }
+
+      // userId 길이 검증
+      if (userId.length < 3 || userId.length > 50) {
+        alert('유효하지 않은 userId입니다.\n\n3-50자 필요합니다.');
+        window.close();
+        setTimeout(() => {
+          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>유효하지 않은 userId</h2><p>3-50자 필요합니다.</p></div>';
+        }, 100);
+        return;
+      }
+
+      console.log('[INFO] 챗봇 시작: userId=' + userId);
+
       const chatContainer = document.querySelector('.chat-container');
       const chatContent = document.querySelector('.chat-content');
       const chatInput = document.querySelector('.chat-input');
@@ -69,17 +98,18 @@
       let hasSentFirstMessage = false;
       let isBusy = false;
       let lastUserMessage = "";
-      let chatId = localStorage.getItem('chat_id');
+
+      // chatId 생성 시 userId 포함
+      let chatId = localStorage.getItem('chat_id_' + userId);
       if (!chatId) {
-        chatId = (crypto?.randomUUID && crypto.randomUUID())
-                || (Date.now() + '_' + Math.random().toString(16).slice(2));
-        localStorage.setItem('chat_id', chatId);
+        chatId = userId + '_' + (Date.now() + '_' + Math.random().toString(16).slice(2));
+        localStorage.setItem('chat_id_' + userId, chatId);
       }
 
       // ✅ 홈 버튼 클릭 시 세션 초기화 후 리로드
       document.querySelector('.chat-home')?.addEventListener('click', (e) => {
         e.preventDefault();
-        localStorage.removeItem('chat_id');  // 세션 클리어
+        localStorage.removeItem('chat_id_' + userId);  // 세션 클리어 (userId 포함)
         window.location.reload();
       });
 

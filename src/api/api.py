@@ -91,8 +91,38 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 루트 경로 ("/")
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("chat.html", {"request": request})
+async def read_root(request: Request, userId: str = None):
+    """
+    챗봇 화면 렌더링 (userId 파라미터 필수)
+
+    Args:
+        request: FastAPI Request 객체
+        userId: 사용자 ID (query parameter)
+
+    Returns:
+        chat.html 템플릿 또는 에러 메시지
+    """
+    # userId 파라미터 검증
+    if not userId:
+        return PlainTextResponse(
+            "접근이 거부되었습니다. userId 파라미터가 필요합니다.\n\n"
+            "올바른 접근 방법: /?userId=your_user_id",
+            status_code=403
+        )
+
+    # userId 길이 검증 (최소 3자, 최대 50자)
+    if len(userId) < 3 or len(userId) > 50:
+        return PlainTextResponse(
+            "유효하지 않은 userId입니다. (3-50자 필요)",
+            status_code=400
+        )
+
+    print(f"[INFO] 챗봇 접속: userId={userId}")
+
+    return templates.TemplateResponse("chat.html", {
+        "request": request,
+        "userId": userId
+    })
 
 
 # ✅ 채팅 API 엔드포인트 (스트리밍 버전)
