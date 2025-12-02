@@ -127,7 +127,7 @@ async def read_root(request: Request, userId: str = None):
 
 # ✅ 채팅 API 엔드포인트 (스트리밍 버전)
 @app.post("/chat")
-async def chat(message: str = Form(...), session_id: str = Form(None)):
+async def chat(message: str = Form(...), session_id: str = Form(None), user_id: str = Form(None)):
     # 1. session_id 검증
     if not session_id:
         return PlainTextResponse("session_id is required", status_code=400)
@@ -175,7 +175,8 @@ async def chat(message: str = Form(...), session_id: str = Form(None)):
         # 스트리밍 완료 후 DB에 저장 (정상 응답만)
         try:
             now = datetime.now()
-            user_id = session_id[:20] if session_id else "anonymous"
+            # user_id: URL 파라미터에서 전달된 값 사용 (없으면 session_id에서 추출)
+            db_user_id = user_id if user_id else (session_id[:20] if session_id else "anonymous")
 
             # INSERT 쿼리 (uuid는 DB에서 자동 생성됨)
             query = """
@@ -184,7 +185,7 @@ async def chat(message: str = Form(...), session_id: str = Form(None)):
                 VALUES (%s, %s, %s, %s)
                 RETURNING uuid
             """
-            params = (user_id, message, full_response, now)
+            params = (db_user_id, message, full_response, now)
 
             # UUID 반환 받기
             from src.core.database import fetch_one

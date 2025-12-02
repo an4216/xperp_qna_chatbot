@@ -180,6 +180,7 @@
           const formData = new FormData();
           formData.append('message', message);
           formData.append('session_id', chatId);
+          formData.append('user_id', userId);  // userId를 API에 전송
 
           const wrapper = document.createElement('div');
           const msgId = Date.now();
