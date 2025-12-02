@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, Body
-from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -9,7 +9,7 @@ import asyncio
 import json, os, time, re
 from src.api.middleware.rate_limiter import RateLimiter
 from src.core.guardrails import validate_input
-from src.core.database import execute_query
+from src.core.database import execute_query, test_connection
 from datetime import datetime
 
 
@@ -268,3 +268,43 @@ async def feedback(data: dict = Body(...)):
         return {"status": "error", "message": str(e)}
 
     return {"status": "ok"}
+
+
+# ✅ 헬스 체크 API
+@app.get("/health")
+async def health_check():
+    """
+    서버 헬스 체크 엔드포인트
+
+    Returns:
+        JSON 응답:
+        - status: 서버 상태 (ok/degraded/error)
+        - timestamp: 현재 시간
+        - database: DB 연결 상태
+        - response_time_ms: 응답 시간 (밀리초)
+    """
+    start_time = time.time()
+
+    # DB 연결 체크
+    db_connected, db_message = test_connection()
+
+    # 전체 상태 결정
+    if db_connected:
+        overall_status = "ok"
+    else:
+        overall_status = "degraded"  # DB 없어도 챗봇은 작동하므로 degraded
+
+    response_time_ms = round((time.time() - start_time) * 1000, 2)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": overall_status,
+            "timestamp": datetime.now().isoformat(),
+            "database": {
+                "connected": db_connected,
+                "message": db_message
+            },
+            "response_time_ms": response_time_ms
+        }
+    )
