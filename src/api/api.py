@@ -121,17 +121,28 @@ async def chat(message: str = Form(...), session_id: str = Form(None)):
 
     # 전체 응답 수집용 변수
     full_response = ""
+    is_guardrail_reject = False
 
     async def event_stream():
-        nonlocal full_response
+        nonlocal full_response, is_guardrail_reject
 
         # 답변 스트리밍
         for chunk in ai_response_generator:
+            # 가드레일 거부 마커 감지
+            if chunk == "__GUARDRAIL_REJECT__":
+                is_guardrail_reject = True
+                continue  # 마커는 클라이언트에 전송하지 않음
+
             full_response += chunk
             yield chunk
             await asyncio.sleep(0.01)
 
-        # 스트리밍 완료 후 DB에 저장
+        # 가드레일 거부 메시지는 DB에 저장하지 않음
+        if is_guardrail_reject:
+            print(f"[INFO] 가드레일 거부 메시지 - DB 저장 생략")
+            return
+
+        # 스트리밍 완료 후 DB에 저장 (정상 응답만)
         try:
             now = datetime.now()
             user_id = session_id[:20] if session_id else "anonymous"

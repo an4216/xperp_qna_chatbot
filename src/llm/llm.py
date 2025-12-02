@@ -970,6 +970,8 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         session_history_getter=get_session_history
     )
     if not is_valid:
+        # 가드레일 거부 메시지에 특수 마커 추가 (DB 저장 방지용)
+        yield "__GUARDRAIL_REJECT__"
         yield error_msg
         return
 
