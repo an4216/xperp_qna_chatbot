@@ -278,15 +278,14 @@ async def health_check():
 
     Returns:
         JSON 응답:
-        - status: 서버 상태 (ok/degraded/error)
-        - timestamp: 현재 시간
-        - database: DB 연결 상태
+        - status: 서버 상태 (ok/degraded)
+        - database_connected: DB 연결 상태 (true/false)
         - response_time_ms: 응답 시간 (밀리초)
     """
     start_time = time.time()
 
     # DB 연결 체크
-    db_connected, db_message = test_connection()
+    db_connected, _ = test_connection()
 
     # 전체 상태 결정
     if db_connected:
@@ -300,11 +299,7 @@ async def health_check():
         status_code=200,
         content={
             "status": overall_status,
-            "timestamp": datetime.now().isoformat(),
-            "database": {
-                "connected": db_connected,
-                "message": db_message
-            },
+            "database_connected": db_connected,
             "response_time_ms": response_time_ms
         }
     )
