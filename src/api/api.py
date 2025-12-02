@@ -105,16 +105,15 @@ async def read_root(request: Request, userId: str = None):
     # userId 파라미터 검증
     if not userId:
         return PlainTextResponse(
-            "접근이 거부되었습니다. userId 파라미터가 필요합니다.\n\n"
-            "올바른 접근 방법: /?userId=your_user_id",
+            "접근이 거부되었습니다.",
             status_code=403
         )
 
     # userId 길이 검증 (최소 3자, 최대 50자)
     if len(userId) < 3 or len(userId) > 50:
         return PlainTextResponse(
-            "유효하지 않은 userId입니다. (3-50자 필요)",
-            status_code=400
+            "접근이 거부되었습니다.",
+            status_code=403
         )
 
     print(f"[INFO] 챗봇 접속: userId={userId}")

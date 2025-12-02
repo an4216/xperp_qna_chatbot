@@ -68,21 +68,21 @@
 
       // userId가 없으면 접근 차단
       if (!userId) {
-        alert('접근이 거부되었습니다.\n\nuserId 파라미터가 필요합니다.\n\n예시: /?userId=your_user_id');
+        alert('접근이 거부되었습니다.');
         window.close();
         // window.close()가 작동하지 않을 경우 빈 페이지로 리디렉션
         setTimeout(() => {
-          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2><p>userId 파라미터가 필요합니다.</p></div>';
+          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2></div>';
         }, 100);
         return;
       }
 
       // userId 길이 검증
       if (userId.length < 3 || userId.length > 50) {
-        alert('유효하지 않은 userId입니다.\n\n3-50자 필요합니다.');
+        alert('접근이 거부되었습니다.');
         window.close();
         setTimeout(() => {
-          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>유효하지 않은 userId</h2><p>3-50자 필요합니다.</p></div>';
+          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2></div>';
         }, 100);
         return;
       }
