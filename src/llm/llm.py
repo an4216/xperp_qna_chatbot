@@ -596,13 +596,13 @@ def load_yearend_keywords():
 # 오타 보정 (키워드 기반 유사도 매칭)
 # =========================================
 @log_execution_time
-def correct_typos(question: str, similarity_threshold: int = 85) -> str:
+def correct_typos(question: str, similarity_threshold: int = 80) -> str:
     """
     질문에서 연말정산 키워드의 오타를 자동으로 보정
 
     Args:
         question: 사용자 질문
-        similarity_threshold: 유사도 임계값 (0-100, 기본값 85)
+        similarity_threshold: 유사도 임계값 (0-100, 기본값 80)
 
     Returns:
         오타가 보정된 질문
@@ -627,23 +627,35 @@ def correct_typos(question: str, similarity_threshold: int = 85) -> str:
         if word in keywords:
             continue
 
+        # 한글 조사 제거 (이, 가, 은, 는, 을, 를, 와, 과, 에, 에서, 으로, 로)
+        base_word = word
+        particles = ['에서', '으로', '이', '가', '은', '는', '을', '를', '와', '과', '에', '로', '도', '만', '의']
+        for particle in particles:
+            if len(base_word) > 2 and base_word.endswith(particle):
+                base_word = base_word[:-len(particle)]
+                break
+
+        # 조사 제거 후에도 2글자 이상이어야 검사
+        if len(base_word) < 2:
+            continue
+
         # 각 키워드와 유사도 계산
         best_match = None
         best_score = 0
 
         for keyword in keywords:
             # 단어 길이 차이가 너무 크면 건너뛰기 (성능 최적화)
-            if abs(len(word) - len(keyword)) > 3:
+            if abs(len(base_word) - len(keyword)) > 3:
                 continue
 
-            # 유사도 계산 (ratio: 0-100)
-            score = fuzz.ratio(word, keyword)
+            # 유사도 계산 (ratio: 0-100) - 조사 제거된 base_word 사용
+            score = fuzz.ratio(base_word, keyword)
 
             if score > best_score and score >= similarity_threshold:
                 best_score = score
                 best_match = keyword
 
-        # 오타로 판단되면 교체
+        # 오타로 판단되면 교체 (원본 word를 best_match로 교체)
         if best_match:
             corrected_question = corrected_question.replace(word, best_match)
             corrections_made.append(f"{word} → {best_match} (유사도: {best_score}%)")
