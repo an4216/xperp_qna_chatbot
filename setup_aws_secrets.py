@@ -18,7 +18,7 @@ load_dotenv()
 
 # AWS 설정
 AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
-SECRET_NAME = os.getenv("AWS_SECRETS_NAME", "inflearn-chatbot/db")
+SECRET_NAME = os.getenv("AWS_SECRETS_NAME", "dev/postgre/dev-ai-chatbot")
 
 # DB 정보 (현재 .env에서 읽기)
 DB_HOST = os.getenv("DB_HOST", "localhost")
