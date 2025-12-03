@@ -127,33 +127,46 @@ async def read_root(request: Request, userId: str = None):
 # ✅ 채팅 API 엔드포인트 (스트리밍 버전)
 @app.post("/chat")
 async def chat(message: str = Form(...), session_id: str = Form(None), user_id: str = Form(None)):
+    # ⏱️ 성능 측정 시작
+    request_start = time.time()
+    print(f"\n{'='*70}")
+    print(f"[PERF] 요청 시작: {message[:50]}...")
+    print(f"{'='*70}")
+
     # 1. session_id 검증
     if not session_id:
         return PlainTextResponse("session_id is required", status_code=400)
 
     # 2. Rate Limiting 체크
+    step_start = time.time()
     allowed, rate_limit_msg = rate_limiter.is_allowed(session_id)
+    print(f"[PERF] Rate Limiting 체크: {(time.time() - step_start)*1000:.2f}ms")
     if not allowed:
         return PlainTextResponse(rate_limit_msg, status_code=429)
 
     # 3. 입력 검증
+    step_start = time.time()
     is_valid, error_msg = validate_input(
         message,
         min_length=MIN_MESSAGE_LENGTH,
         max_length=MAX_MESSAGE_LENGTH
     )
+    print(f"[PERF] 입력 검증: {(time.time() - step_start)*1000:.2f}ms")
     if not is_valid:
         return PlainTextResponse(error_msg, status_code=400)
 
     # 4. AI 응답 생성
+    step_start = time.time()
     ai_response_generator = get_ai_response(message, session_id=session_id)
+    print(f"[PERF] AI 응답 생성기 초기화: {(time.time() - step_start)*1000:.2f}ms")
 
     # 전체 응답 수집용 변수
     full_response = ""
     is_guardrail_reject = False
+    first_token_received = False
 
     async def event_stream():
-        nonlocal full_response, is_guardrail_reject
+        nonlocal full_response, is_guardrail_reject, first_token_received
 
         # 답변 스트리밍
         for chunk in ai_response_generator:
@@ -161,6 +174,13 @@ async def chat(message: str = Form(...), session_id: str = Form(None), user_id: 
             if chunk == "__GUARDRAIL_REJECT__":
                 is_guardrail_reject = True
                 continue  # 마커는 클라이언트에 전송하지 않음
+
+            # ⏱️ 첫 토큰 도달 시간 측정
+            if not first_token_received and chunk.strip():
+                first_token_time = (time.time() - request_start) * 1000
+                print(f"[PERF] ✨ 첫 토큰 도달: {first_token_time:.2f}ms")
+                print(f"{'='*70}\n")
+                first_token_received = True
 
             full_response += chunk
             yield chunk

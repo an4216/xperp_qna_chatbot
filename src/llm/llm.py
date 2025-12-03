@@ -955,20 +955,27 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if not session_id:
         raise ValueError("session_id is required.")
 
+    # ⏱️ 성능 측정 시작
+    llm_start = time.time()
+
     # 0. 오타 보정 (가드레일 검증 전에 먼저 수행)
+    step_start = time.time()
     typo_corrected_input = correct_typos(user_message)
+    print(f"[PERF] 오타 보정: {(time.time() - step_start)*1000:.2f}ms")
     if typo_corrected_input != user_message:
         print(f"[INFO] ✓ 입력 오타 보정")
         print(f"  원본: {user_message}")
         print(f"  보정: {typo_corrected_input}")
 
     # 1. 연말정산 주제 가드레일 검증 (오타 보정된 질문으로 검증) + 이전 질문 추출
+    step_start = time.time()
     is_valid, error_msg, previous_question = validate_yearend_tax_topic(
         typo_corrected_input,  # 오타 보정된 질문으로 검증
         session_id,
         keyword_loader=load_yearend_keywords,
         session_history_getter=get_session_history
     )
+    print(f"[PERF] 가드레일 검증: {(time.time() - step_start)*1000:.2f}ms")
     if not is_valid:
         # 가드레일 거부 메시지에 특수 마커 추가 (DB 저장 방지용)
         yield "__GUARDRAIL_REJECT__"
@@ -979,7 +986,9 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     enhanced_message = typo_corrected_input
     if previous_question:
         # LLM을 사용해서 이전 질문과 후속 질문을 자연스럽게 병합
+        step_start = time.time()
         enhanced_message = merge_followup_question(previous_question, typo_corrected_input)
+        print(f"[PERF] 후속 질문 병합 (LLM): {(time.time() - step_start)*1000:.2f}ms")
         print(f"[INFO] 후속 질문 병합:")
         print(f"  이전: {previous_question}")
         print(f"  후속: {typo_corrected_input}")
@@ -990,7 +999,9 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         use_hyde = USE_HYDE
 
     # 3. 질문 보정 (키워드가 병합된 질문으로 보정)
+    step_start = time.time()
     refined_message = refine_question(enhanced_message)
+    print(f"[PERF] 질문 보정: {(time.time() - step_start)*1000:.2f}ms")
 
     # 질문 보정 결과 로그
     if refined_message != enhanced_message:
@@ -999,7 +1010,9 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         print(f"  보정: {refined_message}")
 
     # 4. 질문 유형 분류 (단순 vs 상세)
+    step_start = time.time()
     question_type = classify_question_type(refined_message)
+    print(f"[PERF] 질문 유형 분류: {(time.time() - step_start)*1000:.2f}ms")
 
     # 5. HyDE 적용 여부 판단 및 실행
     search_query = refined_message  # 기본값: 보정된 질문으로 검색
@@ -1007,7 +1020,9 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     if use_hyde and should_use_hyde(refined_message):
         try:
             # HyDE: 가상 답변 생성
+            step_start = time.time()
             hypothetical_answer = hyde_transform(refined_message)
+            print(f"[PERF] HyDE 변환 (LLM): {(time.time() - step_start)*1000:.2f}ms")
             search_query = hypothetical_answer  # 가상 답변으로 검색
 
             # 디버깅용 출력 (필요시 주석 해제)
@@ -1027,6 +1042,7 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
         # Retriever 호출 시 재시도 로직 포함
         docs = []
         max_retries = 3
+        step_start = time.time()
         for attempt in range(max_retries):
             try:
                 docs = retriever.invoke(search_query)
@@ -1044,18 +1060,21 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
                     print(f"[WARN] 모든 재시도 실패. 빈 문서 리스트로 대체합니다.")
                     docs = []
                     yield f"⚠️ 벡터 데이터베이스 연결에 문제가 발생했습니다. 일반적인 답변을 제공합니다.\n\n"
+        print(f"[PERF] RAG 검색 (Bedrock KB): {(time.time() - step_start)*1000:.2f}ms")
 
         # 캐시된 HyDE chain 사용 (질문 유형에 따라 선택)
         hyde_chain = get_hyde_chain(question_type)
         chat_history = get_session_history(session_id)
 
         # 스트리밍 답변 생성
+        step_start = time.time()
         try:
             stream = hyde_chain.stream({
                 "input": refined_message,  # 보정된 질문
                 "context": docs,  # 검색된 문서
                 "chat_history": chat_history.messages
             })
+            print(f"[PERF] LLM 스트림 시작: {(time.time() - step_start)*1000:.2f}ms")
         except Exception as e:
             error_type = type(e).__name__
             error_msg = str(e)[:200]
@@ -1064,13 +1083,17 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
             return
     else:
         # 일반 모드 (질문 유형에 따라 선택)
+        step_start = time.time()
         rag_chain = get_rag_chain(question_type)
+        print(f"[PERF] RAG 체인 로드: {(time.time() - step_start)*1000:.2f}ms")
 
+        step_start = time.time()
         try:
             stream = rag_chain.stream(
                 {"input": refined_message},
                 config={"configurable": {"session_id": session_id}},
             )
+            print(f"[PERF] LLM 스트림 시작: {(time.time() - step_start)*1000:.2f}ms")
         except Exception as e:
             error_type = type(e).__name__
             error_msg = str(e)[:200]
@@ -1087,8 +1110,14 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
 
     # 스트림 처리 및 대화 이력 저장 (에러 핸들링 강화)
     full_response = ""
+    first_chunk = True
     try:
         for chunk in stream:
+            # ⏱️ 첫 토큰 생성 시간 측정
+            if first_chunk and chunk.strip():
+                print(f"[PERF] LLM 첫 토큰 생성: {(time.time() - llm_start)*1000:.2f}ms")
+                first_chunk = False
+
             full_response += chunk
             yield chunk
 
