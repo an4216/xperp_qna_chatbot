@@ -765,10 +765,115 @@
             // 봇 응답 추가
             const wrapper = document.createElement('div');
             wrapper.className = 'bot-message-container';
+
+            // UUID 저장 (피드백 제출용)
+            if (msg.uuid) {
+              wrapper.dataset.conversationUuid = msg.uuid;
+            }
+
             const botDiv = document.createElement('div');
             botDiv.className = 'bot-message';
             botDiv.innerHTML = marked.parse(msg.response);
             wrapper.appendChild(botDiv);
+
+            // 피드백 버튼 영역 추가
+            const feedbackBox = document.createElement('div');
+            feedbackBox.className = 'feedback-box';
+            feedbackBox.innerHTML = `
+              <div class="feedback-buttons">
+                <button class="icon-button" aria-label="좋아요">
+                  <span class="like-icon"></span>
+                </button>
+                <button class="icon-button" data-role="dislike" aria-label="개선이 필요해요">
+                  <span class="dislike-icon"></span>
+                </button>
+                <button class="icon-button copy-button" data-role="copy" aria-label="답변 복사">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </div>
+              <div class="feedback-form" style="display: none;">
+                <p class="feedback-title">(필수)이름 입력</p>
+                <div class="feedback-input-box">
+                  <input type="text" class="feedback-input" placeholder="이름을 입력해주세요.">
+                </div>
+                <p class="feedback-title">어떤 점이 불만족스러우셨나요?</p>
+                <div class="feedback-options">
+                  <button class="option-button">버그가 있어요.</button>
+                  <button class="option-button">내용이 부정확해요.</button>
+                  <button class="option-button">중복되거나 반복적인 설명이에요.</button>
+                  <button class="option-button">답변이 너무 짧거나 성의없어 보여요.</button>
+                  <button class="option-button">답변이 너무 길거나 불필요하게 장황해요.</button>
+                  <button class="option-button">업무에 적용하기 어려운 답변이에요.</button>
+                  <button class="option-button">기타(의견을 작성해주세요)</button>
+                </div>
+                <div class="feedback-comment-box">
+                  <textarea class="feedback-textarea" placeholder="의견을 입력해 주세요" style="display:none;"></textarea>
+                  <div class="feedback-actions">
+                    <button class="btn-cancel">취소</button>
+                    <button class="btn-submit" disabled>제출</button>
+                  </div>
+                </div>
+              </div>
+            `;
+            wrapper.appendChild(feedbackBox);
+
+            // 피드백 상태에 따라 버튼 상태 설정
+            const likeButton = feedbackBox.querySelector('[aria-label="좋아요"]');
+            const dislikeButton = feedbackBox.querySelector('[data-role="dislike"]');
+            const feedbackForm = feedbackBox.querySelector('.feedback-form');
+
+            if (msg.feedback === 'up') {
+              // 좋아요가 이미 눌린 경우
+              likeButton.classList.add('status-selected');
+              feedbackBox.querySelectorAll('.icon-button').forEach(btn => {
+                btn.disabled = true;
+              });
+              if (dislikeButton) dislikeButton.remove();
+            } else if (msg.feedback === 'down') {
+              // 개선 필요가 이미 눌린 경우
+              dislikeButton.classList.add('status-selected');
+              feedbackBox.querySelectorAll('.icon-button').forEach(btn => {
+                btn.disabled = true;
+              });
+              likeButton.remove();
+
+              // 상세 피드백 표시 (읽기 전용)
+              if (msg.reason || msg.comment) {
+                feedbackForm.style.display = 'block';
+                const nameInput = feedbackForm.querySelector('.feedback-input');
+                const textarea = feedbackForm.querySelector('.feedback-textarea');
+                const submitBtn = feedbackForm.querySelector('.btn-submit');
+                const cancelBtn = feedbackForm.querySelector('.btn-cancel');
+
+                // 읽기 전용 모드로 설정
+                if (nameInput) nameInput.style.display = 'none';
+                feedbackForm.querySelector('.feedback-title').textContent = '제출된 피드백';
+
+                if (msg.reason) {
+                  const reasonButton = Array.from(feedbackForm.querySelectorAll('.option-button'))
+                    .find(btn => btn.textContent === msg.reason);
+                  if (reasonButton) {
+                    reasonButton.classList.add('selected');
+                    reasonButton.disabled = true;
+                  }
+                }
+
+                if (msg.comment) {
+                  textarea.style.display = 'block';
+                  textarea.value = msg.comment;
+                  textarea.disabled = true;
+                }
+
+                // 버튼 숨기기
+                submitBtn.style.display = 'none';
+                cancelBtn.style.display = 'none';
+              }
+            }
+            // feedback === null인 경우 버튼은 기본 활성화 상태 (이미 그렇게 렌더링됨)
+
             chatContent.appendChild(wrapper);
           });
 

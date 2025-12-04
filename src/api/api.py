@@ -390,7 +390,7 @@ async def get_conversation_messages(conversation_id: str, user_id: str = None):
         # user_id 검증이 필요한 경우 WHERE 조건 추가
         if user_id:
             query = """
-                SELECT message, response, created_at
+                SELECT uuid, message, response, created_at, feedback, reason, comment
                 FROM feedback
                 WHERE conversation_id = %s AND user_id = %s
                 ORDER BY created_at ASC
@@ -398,7 +398,7 @@ async def get_conversation_messages(conversation_id: str, user_id: str = None):
             params = (conversation_id, user_id)
         else:
             query = """
-                SELECT message, response, created_at
+                SELECT uuid, message, response, created_at, feedback, reason, comment
                 FROM feedback
                 WHERE conversation_id = %s
                 ORDER BY created_at ASC
