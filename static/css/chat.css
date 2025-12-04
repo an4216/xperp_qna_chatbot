@@ -107,18 +107,58 @@ html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0
 .user-message { background-color: #31333f; padding: 10px 17px; color: #fff; border-radius: 12px; margin: 0 20px; white-space: break-spaces; max-width: calc(100% - 55px); }
 /* 챗봇 메시지 */
 .bot-message-container { display: flex; align-items: flex-start; padding: 0 20px; margin-bottom: 40px; flex-direction: column; }
-.bot-message { background-color: #F5F6F8; padding: 10px 17px; border-radius: 12px; width: 100%; line-height: 1.6; min-height: 46px; word-break: keep-all; }
+.bot-message { background-color: #F5F6F8; padding: 16px 20px; border-radius: 12px; width: 100%; line-height: 1.7; min-height: 46px; word-break: keep-all; }
+
 /* 챗봇 메시지 내부 컨텐츠 */
-.bot-message p { margin-top: 0; }
-.bot-message ul, .bot-message ol { padding: 0 0 0 20px; margin: 0; }
-.bot-message p, .bot-message li { font-size: 16px; line-height: 1.625; color: oklch(0.21 0.034 264.665); }
-.bot-message li::marker { font-size: 12px !important}
-.bot-message p.elapsed { margin-top: 12px; }
-/* 챗봇 메시지 내부 제목 */
-.bot-message h3, .bot-message p strong { font-size: 18px; font-weight: 600; display: block; margin: 20px 0 8px; color: #2c3e50 !important; line-height: 1.625; }
-.bot-message h3:first-child, .bot-message p strong {margin-top: 0;}
-/* 챗봇 메시지 내부 구분선 */
-.bot-message hr { border: 0; height: 1px; background-color: #dfdfdf; margin: 24px 0; }
+.bot-message p { margin: 12px 0; font-size: 16px; line-height: 1.7; color: #2c3e50; }
+.bot-message p:first-child { margin-top: 0; }
+.bot-message p:last-child { margin-bottom: 0; }
+
+/* 리스트 */
+.bot-message ul, .bot-message ol { padding: 0 0 0 24px; margin: 12px 0; }
+.bot-message li { font-size: 16px; line-height: 1.7; color: #2c3e50; margin: 6px 0; }
+.bot-message li::marker { font-size: 14px; }
+.bot-message ul ul, .bot-message ol ol, .bot-message ul ol, .bot-message ol ul { margin: 6px 0; }
+
+/* 제목 */
+.bot-message h1, .bot-message h2, .bot-message h3, .bot-message h4 { font-weight: 600; color: #1a202c; margin: 24px 0 12px; line-height: 1.4; }
+.bot-message h1:first-child, .bot-message h2:first-child, .bot-message h3:first-child, .bot-message h4:first-child { margin-top: 0; }
+.bot-message h1 { font-size: 24px; }
+.bot-message h2 { font-size: 20px; }
+.bot-message h3 { font-size: 18px; }
+.bot-message h4 { font-size: 16px; }
+
+/* 강조 */
+.bot-message strong { font-weight: 600; color: #1a202c; }
+.bot-message em { font-style: italic; }
+
+/* 인라인 코드 */
+.bot-message code { background-color: #e5e7eb; color: #c7254e; padding: 2px 6px; border-radius: 4px; font-size: 14px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; }
+
+/* 코드 블록 */
+.bot-message pre { background-color: #2d2d2d; color: #f8f8f2; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 16px 0; }
+.bot-message pre code { background-color: transparent; color: inherit; padding: 0; font-size: 14px; }
+
+/* 블록쿼트 */
+.bot-message blockquote { border-left: 4px solid #4a5568; padding: 12px 16px; margin: 16px 0; background-color: #edf2f7; border-radius: 4px; color: #4a5568; }
+.bot-message blockquote p { margin: 0; }
+
+/* 링크 */
+.bot-message a { color: #3182ce; text-decoration: underline; transition: color 0.2s; }
+.bot-message a:hover { color: #2c5282; }
+
+/* 테이블 */
+.bot-message table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
+.bot-message table th, .bot-message table td { border: 1px solid #e2e8f0; padding: 10px 12px; text-align: left; }
+.bot-message table th { background-color: #f7fafc; font-weight: 600; color: #2d3748; }
+.bot-message table tr:nth-child(even) { background-color: #f7fafc; }
+.bot-message table tr:hover { background-color: #edf2f7; }
+
+/* 구분선 */
+.bot-message hr { border: 0; height: 1px; background-color: #cbd5e0; margin: 24px 0; }
+
+/* 이미지 */
+.bot-message img { max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; }
 /* ==========================================================================
    5. 로딩 인디케이터
    ========================================================================== */
