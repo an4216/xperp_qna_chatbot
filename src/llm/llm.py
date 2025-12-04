@@ -963,7 +963,7 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
     typo_corrected_input = correct_typos(user_message)
     print(f"[PERF] 오타 보정: {(time.time() - step_start)*1000:.2f}ms")
     if typo_corrected_input != user_message:
-        print(f"[INFO] ✓ 입력 오타 보정")
+        print(f"[INFO] [OK] 입력 오타 보정")
         print(f"  원본: {user_message}")
         print(f"  보정: {typo_corrected_input}")
 
@@ -1005,7 +1005,7 @@ def get_ai_response(user_message: str, session_id: str, use_hyde: bool = None):
 
     # 질문 보정 결과 로그
     if refined_message != enhanced_message:
-        print(f"[INFO] ✓ 질문 보정 완료")
+        print(f"[INFO] [OK] 질문 보정 완료")
         print(f"  입력: {enhanced_message}")
         print(f"  보정: {refined_message}")
 
