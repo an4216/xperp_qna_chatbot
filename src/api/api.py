@@ -197,23 +197,36 @@ async def chat(message: str = Form(...), session_id: str = Form(None), user_id: 
             # user_id: URL 파라미터에서 전달된 값 사용 (없으면 session_id에서 추출)
             db_user_id = user_id if user_id else (session_id[:20] if session_id else "anonymous")
 
-            # INSERT 쿼리 (uuid는 DB에서 자동 생성됨)
+            # conversation_id = session_id 사용
+            conversation_id = session_id if session_id else f"conv_{db_user_id}_{int(now.timestamp() * 1000)}"
+
+            # 첫 메시지 여부 확인 (해당 conversation_id로 기존 메시지가 있는지)
+            from src.core.database import fetch_one
+            check_query = """
+                SELECT COUNT(*)
+                FROM feedback
+                WHERE conversation_id = %s
+            """
+            count_result = fetch_one(check_query, (conversation_id,))
+            is_first_message = (count_result[0] == 0) if count_result else True
+
+            # INSERT 쿼리 (conversation_id, is_first_message 추가)
             query = """
                 INSERT INTO feedback
-                (user_id, message, response, created_at)
-                VALUES (%s, %s, %s, %s)
+                (user_id, conversation_id, is_first_message, message, response, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING uuid
             """
-            params = (db_user_id, message, full_response, now)
+            params = (db_user_id, conversation_id, is_first_message, message, full_response, now)
 
             # UUID 반환 받기
-            from src.core.database import fetch_one
             result = fetch_one(query, params)
 
             if result:
                 conversation_uuid = str(result[0])
-                # UUID를 특수 형식으로 전달 (프론트엔드에서 파싱)
+                # UUID와 conversation_id를 특수 형식으로 전달 (프론트엔드에서 파싱)
                 yield f"\n__UUID:{conversation_uuid}"
+                yield f"\n__CONVERSATION_ID:{conversation_id}"
 
         except Exception as e:
             print(f"[ERROR] 대화 저장 실패: {e}")
@@ -288,6 +301,71 @@ async def feedback(data: dict = Body(...)):
         return {"status": "error", "message": str(e)}
 
     return {"status": "ok"}
+
+
+# ✅ 대화 목록 조회 API
+@app.get("/conversations")
+async def get_conversations(user_id: str):
+    """
+    사용자의 대화 목록 조회 (ChatGPT 스타일)
+
+    Args:
+        user_id: 사용자 ID (URL 파라미터)
+
+    Returns:
+        JSON 응답:
+        - conversations: 대화 목록 배열
+          - conversation_id: 대화 고유 ID
+          - first_message: 첫 메시지 (제목 대신 사용)
+          - message_count: 대화 내 메시지 수
+          - created_at: 대화 시작 시간
+          - updated_at: 마지막 메시지 시간
+    """
+    try:
+        from src.core.database import fetch_all_dict
+
+        query = """
+            SELECT
+                f1.conversation_id,
+                (
+                    SELECT message
+                    FROM feedback f2
+                    WHERE f2.conversation_id = f1.conversation_id
+                    AND f2.is_first_message = true
+                    LIMIT 1
+                ) as first_message,
+                COUNT(*) as message_count,
+                MIN(f1.created_at) as created_at,
+                MAX(f1.created_at) as updated_at
+            FROM feedback f1
+            WHERE f1.user_id = %s
+            AND f1.conversation_id IS NOT NULL
+            GROUP BY f1.conversation_id
+            ORDER BY MAX(f1.created_at) DESC
+            LIMIT 50
+        """
+
+        conversations = fetch_all_dict(query, (user_id,))
+
+        # 시간 포맷 변환 (ISO 형식)
+        for conv in conversations:
+            if conv.get('created_at'):
+                conv['created_at'] = conv['created_at'].isoformat()
+            if conv.get('updated_at'):
+                conv['updated_at'] = conv['updated_at'].isoformat()
+
+        return {
+            "status": "ok",
+            "conversations": conversations
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 대화 목록 조회 실패: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "conversations": []
+        }
 
 
 # ✅ 헬스 체크 API
