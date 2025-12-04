@@ -73,7 +73,91 @@
     </div>
   </div>
 
+  <!-- Modal -->
+  <div id="customModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitle"></h3>
+      </div>
+      <div class="modal-body">
+        <p id="modalMessage"></p>
+      </div>
+      <div class="modal-footer">
+        <button id="modalCancelBtn" class="modal-btn modal-btn-cancel">취소</button>
+        <button id="modalConfirmBtn" class="modal-btn modal-btn-confirm">확인</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    // ============================================
+    // 모달 함수
+    // ============================================
+    function showAlert(message, title = '알림') {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('customModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const confirmBtn = document.getElementById('modalConfirmBtn');
+        const cancelBtn = document.getElementById('modalCancelBtn');
+
+        modalTitle.textContent = title;
+        modalMessage.innerHTML = message.replace(/\n/g, '<br>');
+
+        // alert 모드: 확인 버튼만 표시
+        cancelBtn.style.display = 'none';
+        confirmBtn.style.display = 'block';
+        confirmBtn.textContent = '확인';
+
+        modal.style.display = 'flex';
+
+        const handleConfirm = () => {
+          modal.style.display = 'none';
+          confirmBtn.removeEventListener('click', handleConfirm);
+          resolve(true);
+        };
+
+        confirmBtn.addEventListener('click', handleConfirm);
+      });
+    }
+
+    function showConfirm(message, title = '확인') {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('customModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const confirmBtn = document.getElementById('modalConfirmBtn');
+        const cancelBtn = document.getElementById('modalCancelBtn');
+
+        modalTitle.textContent = title;
+        modalMessage.innerHTML = message.replace(/\n/g, '<br>');
+
+        // confirm 모드: 취소/확인 버튼 모두 표시
+        cancelBtn.style.display = 'block';
+        confirmBtn.style.display = 'block';
+        confirmBtn.textContent = '확인';
+
+        modal.style.display = 'flex';
+
+        const handleConfirm = () => {
+          modal.style.display = 'none';
+          confirmBtn.removeEventListener('click', handleConfirm);
+          cancelBtn.removeEventListener('click', handleCancel);
+          resolve(true);
+        };
+
+        const handleCancel = () => {
+          modal.style.display = 'none';
+          confirmBtn.removeEventListener('click', handleConfirm);
+          cancelBtn.removeEventListener('click', handleCancel);
+          resolve(false);
+        };
+
+        confirmBtn.addEventListener('click', handleConfirm);
+        cancelBtn.addEventListener('click', handleCancel);
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       // ============================================
       // userId 파라미터 검증 (클라이언트 측 보안)
@@ -83,22 +167,24 @@
 
       // userId가 없으면 접근 차단
       if (!userId) {
-        alert('접근이 거부되었습니다.');
-        window.close();
-        // window.close()가 작동하지 않을 경우 빈 페이지로 리디렉션
-        setTimeout(() => {
-          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2></div>';
-        }, 100);
+        showAlert('접근이 거부되었습니다.', '오류').then(() => {
+          window.close();
+          // window.close()가 작동하지 않을 경우 빈 페이지로 리디렉션
+          setTimeout(() => {
+            document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2></div>';
+          }, 100);
+        });
         return;
       }
 
       // userId 길이 검증
       if (userId.length < 3 || userId.length > 50) {
-        alert('접근이 거부되었습니다.');
-        window.close();
-        setTimeout(() => {
-          document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2></div>';
-        }, 100);
+        showAlert('접근이 거부되었습니다.', '오류').then(() => {
+          window.close();
+          setTimeout(() => {
+            document.body.innerHTML = '<div style="text-align:center;margin-top:50px;"><h2>접근이 거부되었습니다</h2></div>';
+          }, 100);
+        });
         return;
       }
 
@@ -448,12 +534,12 @@
           const name = nameInput ? nameInput.value.trim() : "";
 
           if (!name) {
-            alert("이름을 입력해주세요.");
+            showAlert("이름을 입력해주세요.", "입력 오류");
             return;
           }
 
           if (!reason && comment.length < 10) {
-            alert("의견을 최소 10자 이상 입력하거나 사유를 선택해주세요.");
+            showAlert("의견을 최소 10자 이상 입력하거나 사유를 선택해주세요.", "입력 오류");
             return;
           }
 
@@ -461,7 +547,7 @@
           const conversationUuid = wrapper.dataset.conversationUuid;
           if (!conversationUuid) {
             console.error("UUID가 없어 피드백을 전송할 수 없습니다.");
-            alert("오류: 피드백을 전송할 수 없습니다. 페이지를 새로고침하고 다시 시도해주세요.");
+            showAlert("피드백을 전송할 수 없습니다. 페이지를 새로고침하고 다시 시도해주세요.", "오류");
             return;
           }
 
@@ -576,7 +662,7 @@
               }, 2000);
             }).catch(err => {
               console.error('복사 실패:', err);
-              alert('복사에 실패했습니다.');
+              showAlert('복사에 실패했습니다.', '오류');
             });
           }
         }
@@ -768,7 +854,8 @@
 
       // 대화 삭제
       async function deleteConversation(conversationId) {
-        if (!confirm('이 대화를 삭제하시겠습니까?\n삭제된 대화는 복구할 수 없습니다.')) {
+        const confirmed = await showConfirm('이 대화를 삭제하시겠습니까?\n삭제된 대화는 복구할 수 없습니다.', '대화 삭제');
+        if (!confirmed) {
           return;
         }
 
@@ -791,11 +878,11 @@
             // 대화 목록 새로고침
             await loadConversations();
           } else {
-            alert('대화 삭제에 실패했습니다: ' + (data.message || '알 수 없는 오류'));
+            showAlert('대화 삭제에 실패했습니다: ' + (data.message || '알 수 없는 오류'), '오류');
           }
         } catch (err) {
           console.error('대화 삭제 실패:', err);
-          alert('대화 삭제 중 오류가 발생했습니다.');
+          showAlert('대화 삭제 중 오류가 발생했습니다.', '오류');
         }
       }
 
@@ -811,7 +898,7 @@
           const data = await response.json();
 
           if (data.status !== 'ok' || !data.messages) {
-            alert('대화를 불러올 수 없습니다.');
+            showAlert('대화를 불러올 수 없습니다.', '오류');
             return;
           }
 
@@ -955,7 +1042,7 @@
 
         } catch (err) {
           console.error('대화 전환 실패:', err);
-          alert('대화를 불러오는 중 오류가 발생했습니다.');
+          showAlert('대화를 불러오는 중 오류가 발생했습니다.', '오류');
         }
       }
 
