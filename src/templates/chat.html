@@ -28,6 +28,21 @@
 
     <!-- 본문 -->
     <div class="main-content">
+      <!-- 사이드바 (대화 목록) -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <button class="new-chat-button" onclick="createNewConversation()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            <span>새 대화</span>
+          </button>
+        </div>
+        <div class="conversation-list" id="conversationList">
+          <!-- 대화 목록이 여기에 동적으로 추가됩니다 -->
+        </div>
+      </aside>
+
       <main class="chat-area">
         <div class="chat-container">
           <div class="chat-content">
@@ -98,6 +113,7 @@
       let hasSentFirstMessage = false;
       let isBusy = false;
       let lastUserMessage = "";
+      let currentConversationId = null;
 
       // chatId 생성 시 userId 포함
       let chatId = localStorage.getItem('chat_id_' + userId);
@@ -105,6 +121,7 @@
         chatId = userId + '_' + (Date.now() + '_' + Math.random().toString(16).slice(2));
         localStorage.setItem('chat_id_' + userId, chatId);
       }
+      currentConversationId = chatId;
 
       // ✅ 홈 버튼 클릭 시 세션 초기화 후 리로드
       document.querySelector('.chat-home')?.addEventListener('click', (e) => {
@@ -186,6 +203,9 @@
           const msgId = Date.now();
           wrapper.className = 'bot-message-container';
           wrapper.dataset.msgId = msgId;
+
+          // 메시지 전송 시 대화 목록 갱신 체크 (첫 메시지일 경우)
+          const isFirstMessageInSession = !hasSentFirstMessage;
 
           const botDiv = document.createElement('div');
           botDiv.className = 'bot-message status-loading';
@@ -269,6 +289,11 @@
             botMessage += chunk;
             botDiv.innerHTML = marked.parse(botMessage);
             scrollToBottom();
+          }
+
+          // 첫 메시지 전송 후 대화 목록 갱신
+          if (isFirstMessageInSession) {
+            setTimeout(loadConversations, 1500);
           }
 
           // ✅ 피드백 박스 추가
@@ -540,6 +565,118 @@
 
       autoResize();
       updateSendButtonState();
+
+      // ============================================
+      // 대화 목록 관련 함수
+      // ============================================
+
+      // 대화 목록 로드
+      async function loadConversations() {
+        try {
+          const response = await fetch(`/conversations?user_id=${userId}`);
+          const data = await response.json();
+
+          if (data.status === 'ok' && data.conversations) {
+            renderConversations(data.conversations);
+          }
+        } catch (err) {
+          console.error('대화 목록 로드 실패:', err);
+        }
+      }
+
+      // 대화 목록 렌더링
+      function renderConversations(conversations) {
+        const listEl = document.getElementById('conversationList');
+        listEl.innerHTML = '';
+
+        if (conversations.length === 0) {
+          listEl.innerHTML = '<div class="empty-conversations">대화 내역이 없습니다</div>';
+          return;
+        }
+
+        conversations.forEach(conv => {
+          const item = document.createElement('div');
+          item.className = 'conversation-item';
+          if (conv.conversation_id === currentConversationId) {
+            item.classList.add('active');
+          }
+
+          const title = conv.first_message || '새 대화';
+          const preview = title.length > 30 ? title.substring(0, 30) + '...' : title;
+
+          const date = new Date(conv.updated_at);
+          const timeAgo = getTimeAgo(date);
+
+          item.innerHTML = `
+            <div class="conversation-title">${escapeHtml(preview)}</div>
+            <div class="conversation-info">
+              <span class="message-count">${conv.message_count}개 메시지</span>
+              <span class="conversation-time">${timeAgo}</span>
+            </div>
+          `;
+
+          item.onclick = () => switchConversation(conv.conversation_id);
+          listEl.appendChild(item);
+        });
+      }
+
+      // 시간 표시 (상대 시간)
+      function getTimeAgo(date) {
+        const now = new Date();
+        const diff = now - date;
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(diff / 3600000);
+        const days = Math.floor(diff / 86400000);
+
+        if (minutes < 1) return '방금 전';
+        if (minutes < 60) return `${minutes}분 전`;
+        if (hours < 24) return `${hours}시간 전`;
+        if (days < 7) return `${days}일 전`;
+        return date.toLocaleDateString('ko-KR');
+      }
+
+      // 새 대화 생성
+      window.createNewConversation = function() {
+        // 새 chatId 생성
+        chatId = userId + '_' + (Date.now() + '_' + Math.random().toString(16).slice(2));
+        localStorage.setItem('chat_id_' + userId, chatId);
+        currentConversationId = chatId;
+
+        // 화면 초기화
+        chatContent.innerHTML = `
+          <div class="cover-content">
+            <h1>XpERP 상담 챗봇에 오신 것을 환영합니다.</h1>
+            <p>공동주택 관리 프로그램 XpERP의 사용법, 오류에 대해 궁금한 점이 있다면 언제든 문의해 주세요!</p>
+            <div class="cover-quesion-preview" aria-live="polite">
+              <div class="line">Q. 전출처리는 어떻게 하나요?</div>
+              <div class="line">Q. 입주민 차량 등록 방법이 궁금해요</div>
+              <div class="line">Q. 관리비 조회 방법을 알려주세요</div>
+            </div>
+          </div>
+        `;
+        hasSentFirstMessage = false;
+        chatInput.value = '';
+        chatInput.focus();
+
+        // 대화 목록에서 활성 상태 제거
+        document.querySelectorAll('.conversation-item').forEach(item => {
+          item.classList.remove('active');
+        });
+      };
+
+      // 대화 전환
+      function switchConversation(conversationId) {
+        // 아직 구현 안 됨 (메시지 로딩 API 필요)
+        alert('이전 대화 불러오기 기능은 곧 추가될 예정입니다.');
+
+        // TODO: 나중에 구현
+        // 1. 해당 conversation_id의 모든 메시지 로드 API 필요
+        // 2. 화면 초기화 후 메시지들 렌더링
+        // 3. chatId 업데이트
+      }
+
+      // 페이지 로드 시 대화 목록 로드
+      loadConversations();
     });
 
     window.addEventListener("pageshow", (event) => {
