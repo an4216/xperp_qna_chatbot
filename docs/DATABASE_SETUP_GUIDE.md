@@ -2,6 +2,22 @@
 
 현재 DB를 삭제하고 새로운 스키마로 재생성하는 방법
 
+## 📌 스크립트 선택
+
+두 가지 버전의 재생성 스크립트가 있습니다:
+
+1. **`database_recreate_uuid.sql`** (권장)
+   - conversation_id로 첫 메시지의 UUID 사용
+   - 별도 ID 생성 로직 불필요
+   - FOREIGN KEY 제약조건으로 데이터 무결성 보장
+   - 더 간단하고 깔끔한 구조
+
+2. **`database_recreate.sql`**
+   - conversation_id로 문자열 형식 사용 (`conv_userId_timestamp`)
+   - 타임스탬프 기반 ID 생성
+
+아래 가이드에서 `database_recreate.sql`을 `database_recreate_uuid.sql`로 변경하여 UUID 버전을 사용할 수 있습니다.
+
 ---
 
 ## ⚠️ 주의사항
@@ -262,6 +278,7 @@ ALTER USER postgres CREATEDB;
 
 ### feedback 테이블 구조
 
+**UUID 버전 (database_recreate_uuid.sql - 권장)**:
 ```sql
 CREATE TABLE feedback (
     -- 기본 필드
@@ -269,7 +286,7 @@ CREATE TABLE feedback (
     user_id VARCHAR(50),                -- 사용자 ID
 
     -- 대화 관리 (NEW)
-    conversation_id VARCHAR(100),       -- 대화 그룹 ID
+    conversation_id UUID,               -- 첫 메시지의 uuid 참조
     conversation_title TEXT,            -- 대화 제목 (첫 메시지에만)
     is_first_message BOOLEAN,           -- 첫 메시지 플래그
 
@@ -286,8 +303,21 @@ CREATE TABLE feedback (
     comment TEXT,                       -- 피드백 코멘트
     name VARCHAR(100),                  -- 피드백 제공자 이름
     timestamp TIMESTAMP,                -- 피드백 시간
-    feedback_updated_at TIMESTAMP       -- 피드백 수정 시간
+    feedback_updated_at TIMESTAMP,      -- 피드백 수정 시간
+
+    -- 제약조건 (UUID 버전만)
+    CONSTRAINT fk_conversation_first_message
+        FOREIGN KEY (conversation_id)
+        REFERENCES feedback(uuid)
+        ON DELETE CASCADE
+        DEFERRABLE INITIALLY DEFERRED
 );
+```
+
+**문자열 버전 (database_recreate.sql)**:
+```sql
+-- conversation_id가 VARCHAR(100) 타입
+-- FOREIGN KEY 제약조건 없음
 ```
 
 ### 인덱스 설명
