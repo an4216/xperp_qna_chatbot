@@ -368,6 +368,66 @@ async def get_conversations(user_id: str):
         }
 
 
+# ✅ 특정 대화의 메시지 조회 API
+@app.get("/conversation/{conversation_id}/messages")
+async def get_conversation_messages(conversation_id: str, user_id: str = None):
+    """
+    특정 대화의 모든 메시지 조회
+
+    Args:
+        conversation_id: 대화 고유 ID (path parameter)
+        user_id: 사용자 ID (query parameter, 선택)
+
+    Returns:
+        JSON 응답:
+        - messages: 메시지 배열 (시간순)
+          - message: 사용자 질문
+          - response: AI 응답
+          - created_at: 생성 시간
+    """
+    try:
+        from src.core.database import fetch_all_dict
+
+        # user_id 검증이 필요한 경우 WHERE 조건 추가
+        if user_id:
+            query = """
+                SELECT message, response, created_at
+                FROM feedback
+                WHERE conversation_id = %s AND user_id = %s
+                ORDER BY created_at ASC
+            """
+            params = (conversation_id, user_id)
+        else:
+            query = """
+                SELECT message, response, created_at
+                FROM feedback
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC
+            """
+            params = (conversation_id,)
+
+        messages = fetch_all_dict(query, params)
+
+        # 시간 포맷 변환 (ISO 형식)
+        for msg in messages:
+            if msg.get('created_at'):
+                msg['created_at'] = msg['created_at'].isoformat()
+
+        return {
+            "status": "ok",
+            "conversation_id": conversation_id,
+            "messages": messages
+        }
+
+    except Exception as e:
+        print(f"[ERROR] 대화 메시지 조회 실패: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "messages": []
+        }
+
+
 # ✅ 헬스 체크 API
 @app.get("/health")
 async def health_check():
