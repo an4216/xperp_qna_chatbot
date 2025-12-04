@@ -651,14 +651,32 @@
           const timeAgo = getTimeAgo(date);
 
           item.innerHTML = `
-            <div class="conversation-title">${escapeHtml(preview)}</div>
-            <div class="conversation-info">
-              <span class="message-count">${conv.message_count}개 메시지</span>
-              <span class="conversation-time">${timeAgo}</span>
+            <div class="conversation-content" data-conversation-id="${conv.conversation_id}">
+              <div class="conversation-title">${escapeHtml(preview)}</div>
+              <div class="conversation-info">
+                <span class="message-count">${conv.message_count}개 메시지</span>
+                <span class="conversation-time">${timeAgo}</span>
+              </div>
             </div>
+            <button class="delete-conversation-btn" data-conversation-id="${conv.conversation_id}" title="대화 삭제">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
           `;
 
-          item.onclick = () => switchConversation(conv.conversation_id);
+          // 대화 내용 클릭 시 대화 전환
+          const contentDiv = item.querySelector('.conversation-content');
+          contentDiv.onclick = () => switchConversation(conv.conversation_id);
+
+          // 삭제 버튼 클릭 이벤트
+          const deleteBtn = item.querySelector('.delete-conversation-btn');
+          deleteBtn.onclick = (e) => {
+            e.stopPropagation(); // 대화 전환 방지
+            deleteConversation(conv.conversation_id);
+          };
+
           listEl.appendChild(item);
         });
       }
@@ -717,14 +735,31 @@
         item.dataset.conversationId = chatId;
 
         item.innerHTML = `
-          <div class="conversation-title">새 대화</div>
-          <div class="conversation-info">
-            <span class="message-count">0개 메시지</span>
-            <span class="conversation-time">방금 전</span>
+          <div class="conversation-content" data-conversation-id="${chatId}">
+            <div class="conversation-title">새 대화</div>
+            <div class="conversation-info">
+              <span class="message-count">0개 메시지</span>
+              <span class="conversation-time">방금 전</span>
+            </div>
           </div>
+          <button class="delete-conversation-btn" data-conversation-id="${chatId}" title="대화 삭제">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
         `;
 
-        item.onclick = () => switchConversation(chatId);
+        // 대화 내용 클릭 시 대화 전환
+        const contentDiv = item.querySelector('.conversation-content');
+        contentDiv.onclick = () => switchConversation(chatId);
+
+        // 삭제 버튼 클릭 이벤트
+        const deleteBtn = item.querySelector('.delete-conversation-btn');
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteConversation(chatId);
+        };
 
         // 맨 위에 추가
         listEl.insertBefore(item, listEl.firstChild);
@@ -736,6 +771,39 @@
           }
         });
       };
+
+      // 대화 삭제
+      async function deleteConversation(conversationId) {
+        if (!confirm('이 대화를 삭제하시겠습니까?\n삭제된 대화는 복구할 수 없습니다.')) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`/conversation/${conversationId}?user_id=${userId}`, {
+            method: 'DELETE'
+          });
+          const data = await response.json();
+
+          if (data.status === 'ok') {
+            // 삭제된 대화가 현재 보고 있는 대화인 경우 화면 초기화
+            if (conversationId === currentConversationId) {
+              chatContent.innerHTML = '';
+              currentConversationId = null;
+
+              // 새 대화 생성
+              await createNewConversation();
+            }
+
+            // 대화 목록 새로고침
+            await loadConversations();
+          } else {
+            alert('대화 삭제에 실패했습니다: ' + (data.message || '알 수 없는 오류'));
+          }
+        } catch (err) {
+          console.error('대화 삭제 실패:', err);
+          alert('대화 삭제 중 오류가 발생했습니다.');
+        }
+      }
 
       // 대화 전환
       async function switchConversation(conversationId) {

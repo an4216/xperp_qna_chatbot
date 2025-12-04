@@ -427,6 +427,74 @@ async def get_conversation_messages(conversation_id: str, user_id: str = None):
         }
 
 
+# ✅ 대화 삭제 API
+@app.delete("/conversation/{conversation_id}")
+async def delete_conversation(conversation_id: str, user_id: str = None):
+    """
+    특정 대화 삭제 (해당 대화의 모든 메시지 삭제)
+
+    Args:
+        conversation_id: 삭제할 대화 ID (path parameter)
+        user_id: 사용자 ID (query parameter, 선택 - 보안을 위해 권장)
+
+    Returns:
+        JSON 응답:
+        - status: "ok" 또는 "error"
+        - deleted_count: 삭제된 메시지 수
+    """
+    try:
+        from src.core.database import execute_query, fetch_one
+
+        # user_id가 제공된 경우 소유권 확인
+        if user_id:
+            check_query = """
+                SELECT COUNT(*) as count
+                FROM feedback
+                WHERE conversation_id = %s AND user_id = %s
+            """
+            result = fetch_one(check_query, (conversation_id, user_id))
+
+            if not result or result[0] == 0:
+                return {
+                    "status": "error",
+                    "message": "대화를 찾을 수 없거나 권한이 없습니다.",
+                    "deleted_count": 0
+                }
+
+        # 삭제 실행
+        delete_query = """
+            DELETE FROM feedback
+            WHERE conversation_id = %s
+        """
+
+        if user_id:
+            delete_query += " AND user_id = %s"
+            params = (conversation_id, user_id)
+        else:
+            params = (conversation_id,)
+
+        success = execute_query(delete_query, params)
+
+        if success:
+            return {
+                "status": "ok",
+                "message": "대화가 삭제되었습니다.",
+                "conversation_id": conversation_id
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "대화 삭제에 실패했습니다."
+            }
+
+    except Exception as e:
+        print(f"[ERROR] 대화 삭제 실패: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
 # ✅ 헬스 체크 API
 @app.get("/health")
 async def health_check():
