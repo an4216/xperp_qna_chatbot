@@ -652,18 +652,15 @@
 
           item.innerHTML = `
             <div class="conversation-content" data-conversation-id="${conv.conversation_id}">
-              <div class="conversation-title">${escapeHtml(preview)}</div>
+              <div class="conversation-title">
+                <span class="title-text">${escapeHtml(preview)}</span>
+                <button class="delete-conversation-btn" data-conversation-id="${conv.conversation_id}" title="대화 삭제">−</button>
+              </div>
               <div class="conversation-info">
                 <span class="message-count">${conv.message_count}개 메시지</span>
                 <span class="conversation-time">${timeAgo}</span>
               </div>
             </div>
-            <button class="delete-conversation-btn" data-conversation-id="${conv.conversation_id}" title="대화 삭제">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-            </button>
           `;
 
           // 대화 내용 클릭 시 대화 전환
@@ -736,18 +733,15 @@
 
         item.innerHTML = `
           <div class="conversation-content" data-conversation-id="${chatId}">
-            <div class="conversation-title">새 대화</div>
+            <div class="conversation-title">
+              <span class="title-text">새 대화</span>
+              <button class="delete-conversation-btn" data-conversation-id="${chatId}" title="대화 삭제">−</button>
+            </div>
             <div class="conversation-info">
               <span class="message-count">0개 메시지</span>
               <span class="conversation-time">방금 전</span>
             </div>
           </div>
-          <button class="delete-conversation-btn" data-conversation-id="${chatId}" title="대화 삭제">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-          </button>
         `;
 
         // 대화 내용 클릭 시 대화 전환
