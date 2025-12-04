@@ -181,8 +181,12 @@
         const message = raw.trim();
         if (!message) return;
 
-        if (!hasSentFirstMessage && coverContent) {
-          coverContent.style.display = 'none';
+        // 환영 화면 완전히 제거 (위로 밀리지 않도록)
+        if (!hasSentFirstMessage) {
+          const cover = document.querySelector('.cover-content');
+          if (cover) {
+            cover.remove();
+          }
           hasSentFirstMessage = true;
         }
 
@@ -648,31 +652,50 @@
       }
 
       // 새 대화 생성
-      window.createNewConversation = function() {
+      window.createNewConversation = async function() {
         // 새 chatId 생성
         chatId = userId + '_' + (Date.now() + '_' + Math.random().toString(16).slice(2));
         localStorage.setItem('chat_id_' + userId, chatId);
         currentConversationId = chatId;
 
-        // 화면 초기화
-        chatContent.innerHTML = `
-          <div class="cover-content">
-            <h1>XpERP 상담 챗봇에 오신 것을 환영합니다.</h1>
-            <p>공동주택 관리 프로그램 XpERP의 사용법, 오류에 대해 궁금한 점이 있다면 언제든 문의해 주세요!</p>
-            <div class="cover-quesion-preview" aria-live="polite">
-              <div class="line">Q. 전출처리는 어떻게 하나요?</div>
-              <div class="line">Q. 입주민 차량 등록 방법이 궁금해요</div>
-              <div class="line">Q. 관리비 조회 방법을 알려주세요</div>
-            </div>
-          </div>
-        `;
+        // 화면 초기화 (환영 메시지 표시하지 않음)
+        chatContent.innerHTML = '';
         hasSentFirstMessage = false;
         chatInput.value = '';
         chatInput.focus();
 
-        // 대화 목록에서 활성 상태 제거
-        document.querySelectorAll('.conversation-item').forEach(item => {
-          item.classList.remove('active');
+        // 대화 목록에 빈 대화 즉시 추가
+        const listEl = document.getElementById('conversationList');
+
+        // "대화 내역이 없습니다" 메시지 제거
+        const emptyMsg = listEl.querySelector('.empty-conversations');
+        if (emptyMsg) {
+          emptyMsg.remove();
+        }
+
+        // 새 대화 아이템 생성
+        const item = document.createElement('div');
+        item.className = 'conversation-item active';
+        item.dataset.conversationId = chatId;
+
+        item.innerHTML = `
+          <div class="conversation-title">새 대화</div>
+          <div class="conversation-info">
+            <span class="message-count">0개 메시지</span>
+            <span class="conversation-time">방금 전</span>
+          </div>
+        `;
+
+        item.onclick = () => switchConversation(chatId);
+
+        // 맨 위에 추가
+        listEl.insertBefore(item, listEl.firstChild);
+
+        // 다른 대화들의 활성 상태 제거
+        document.querySelectorAll('.conversation-item').forEach(otherItem => {
+          if (otherItem !== item) {
+            otherItem.classList.remove('active');
+          }
         });
       };
 
