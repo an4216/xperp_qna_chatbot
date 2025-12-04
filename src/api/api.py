@@ -25,8 +25,8 @@ load_dotenv()
 MAX_MESSAGE_LENGTH = int(os.getenv("MAX_MESSAGE_LENGTH", "2000"))
 MIN_MESSAGE_LENGTH = int(os.getenv("MIN_MESSAGE_LENGTH", "5"))
 
-# Rate Limiting
-RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "10"))
+# Rate Limiting (테스트용 - 1분에 100회로 완화)
+RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 # Rate Limiter 인스턴스 생성
@@ -224,9 +224,8 @@ async def chat(message: str = Form(...), session_id: str = Form(None), user_id: 
 
             if result:
                 conversation_uuid = str(result[0])
-                # UUID와 conversation_id를 특수 형식으로 전달 (프론트엔드에서 파싱)
+                # UUID를 특수 형식으로 전달 (프론트엔드에서 파싱)
                 yield f"\n__UUID:{conversation_uuid}"
-                yield f"\n__CONVERSATION_ID:{conversation_id}"
 
         except Exception as e:
             print(f"[ERROR] 대화 저장 실패: {e}")
