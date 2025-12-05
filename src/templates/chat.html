@@ -931,8 +931,16 @@
           const response = await fetch(`/conversation/${conversationId}/messages?user_id=${userId}`);
           const data = await response.json();
 
-          if (data.status !== 'ok' || !data.messages) {
-            showAlert('대화를 불러올 수 없습니다.', '오류');
+          // 메시지가 없는 새 대화인 경우 (404 또는 빈 배열)
+          if (data.status !== 'ok' || !data.messages || data.messages.length === 0) {
+            // 새 대화로 처리 (화면만 초기화)
+            chatContent.innerHTML = '';
+            chatId = conversationId;
+            currentConversationId = conversationId;
+            localStorage.setItem('chat_id_' + userId, chatId);
+            hasSentFirstMessage = false;
+            updateActiveConversation();
+            chatInput.focus();
             return;
           }
 
