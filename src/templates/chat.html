@@ -6,6 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/png" sizes="48x48" href="/static/images/xperp-favicon.png">
   <link rel="stylesheet" href="/static/css/chat.css">
+  <!-- Driver.js -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <title>XpERP Chatbot</title>
@@ -23,6 +27,10 @@
           <span class="v_line"></span>
           <img data-logo="xperp" src="/static/images/xperp-logo.svg">
         </div>
+        <button type="button" class="help-button" id="helpButton" aria-label="도움말">
+          <span class="help-button__icon" aria-hidden="true">?</span>
+          <span class="help-button__label">도움말</span>
+        </button>
       </nav>
     </header>
 
@@ -195,6 +203,163 @@
       const chatInput = document.querySelector('.chat-input');
       const sendButton = document.querySelector('.send-button');
       const coverContent = document.querySelector('.cover-content');
+
+      const helpButton = document.getElementById('helpButton');
+      const guideStorageKey = `xperp_screen_guide_${userId}`;
+
+      const getDriverFactory = () => {
+        if (window.driver?.js?.driver) return window.driver.js.driver;
+        if (window.driver?.driver) return window.driver.driver;
+        if (window.Driver?.driver) return window.Driver.driver;
+        if (typeof window.Driver === 'function') return window.Driver;
+        return null;
+      };
+
+      const formatGuideProgressText = (current, total) => `단계 ${current}/${total}`;
+
+      const applyGuideProgressText = (current, total) => {
+        requestAnimationFrame(() => {
+          const progressNode = document.querySelector('.driver-popover-progress-text');
+          if (progressNode) {
+            progressNode.textContent = formatGuideProgressText(current, total);
+          }
+        });
+      };
+
+      const buildGuideSteps = () => {
+        const baseSteps = [
+          {
+            element: '.logo',
+            popover: {
+              title: '헤더 영역',
+              description: '상단 로고를 누르면 언제든 새로고침할 수 있어요.',
+              side: 'bottom',
+              align: 'start'
+            }
+          },
+          {
+            element: '.new-chat-button',
+            popover: {
+              title: '새 대화',
+              description: '기존 대화를 보관한 채 새 질문을 편하게 시작할 수 있어요.',
+              side: 'right',
+              align: 'center'
+            }
+          },
+          {
+            element: '#conversationList',
+            popover: {
+              title: '대화 기록',
+              description: '최근 문의가 시간순으로 정리되어 있어 언제든 이어볼 수 있어요.',
+              side: 'right',
+              align: 'start'
+            }
+          },
+          {
+            element: '.chat-content',
+            popover: {
+              title: '대화 내용',
+              description: '질문과 답변이 순서대로 쌓이는 공간이에요.',
+              side: 'left',
+              align: 'center'
+            }
+          },
+          {
+            element: '.chat-input-wrapper',
+            popover: {
+              title: '질문 입력창',
+              description: 'Shift+Enter로 줄바꿈하고 Enter나 버튼으로 전송할 수 있어요.',
+              side: 'top',
+              align: 'center'
+            }
+          },
+          {
+            element: '.send-button',
+            popover: {
+              title: '보내기 버튼',
+              description: '클릭하거나 Enter 키를 눌러 메시지를 보낼 수 있어요.',
+              side: 'left',
+              align: 'center'
+            }
+          },
+          {
+            element: '.help-button',
+            popover: {
+              title: '화면 가이드',
+              description: '필요할 때마다 눌러 이 안내를 다시 확인해보세요.',
+              side: 'left',
+              align: 'center'
+            }
+          }
+        ];
+
+        const totalSteps = baseSteps.length;
+
+        return baseSteps
+          .map((step, index) => {
+            const element = typeof step.element === 'string'
+              ? document.querySelector(step.element)
+              : step.element;
+            if (!element) return null;
+
+            const stepConfig = { ...step, element };
+            stepConfig.onHighlighted = () => {
+              applyGuideProgressText(index + 1, totalSteps);
+              if (typeof step.onHighlighted === 'function') {
+                step.onHighlighted();
+              }
+            };
+            return stepConfig;
+          })
+          .filter(Boolean);
+      };
+
+      const runScreenGuide = () => {
+        const factory = getDriverFactory();
+        if (!factory) {
+          console.warn('Driver.js가 아직 로드되지 않았습니다.');
+          return;
+        }
+
+        const steps = buildGuideSteps();
+        if (!steps.length) {
+          console.warn('화면 가이드에 사용할 요소를 찾지 못했습니다.');
+          return;
+        }
+
+        const guide = factory({
+          showProgress: true,
+          allowClose: true,
+          overlayOpacity: 0.5,
+          stagePadding: 12,
+          nextBtnText: '다음',
+          prevBtnText: '이전',
+          doneBtnText: '확인',
+          progressText: '단계 {current}/{total}',
+          steps
+        });
+
+        if (typeof guide?.drive === 'function') {
+          guide.drive();
+          applyGuideProgressText(1, steps.length);
+        } else if (typeof guide === 'function') {
+          guide();
+          applyGuideProgressText(1, steps.length);
+        }
+
+        localStorage.setItem(guideStorageKey, '1');
+      };
+
+      if (helpButton) {
+        helpButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          runScreenGuide();
+        });
+      }
+
+      if (!localStorage.getItem(guideStorageKey)) {
+        setTimeout(() => runScreenGuide(), 800);
+      }
 
       let hasSentFirstMessage = false;
       let isBusy = false;

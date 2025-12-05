@@ -1,94 +1,133 @@
-
+﻿
 @import url("https://cdn.jsdelivr.net/npm/pretendard/dist/web/static/pretendard.css");
 
 /* ==========================================================================
-   1. 전역 및 기본 레이아웃
+   1. ?꾩뿭 諛?湲곕낯 ?덉씠?꾩썐
    ========================================================================== */
 
-/* 기본 HTML, body 스타일 */
+/* 湲곕낯 HTML, body ?ㅽ???*/
 body, html { margin: 0; padding: 0; height: 100%; font-family: 'Pretendard', sans-serif; background-color: #fff; overflow: hidden; }
-/* 공통 폰트 및 여백 초기화 */
+/* 怨듯넻 ?고듃 諛??щ갚 珥덇린??*/
 html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0; margin: 0; font-family: 'Pretendard', sans-serif; }
-/* 모든 요소에 박스 사이징 적용 */
+/* 紐⑤뱺 ?붿냼??諛뺤뒪 ?ъ씠吏??곸슜 */
 * { box-sizing: border-box; }
-/* 전체 레이아웃 컨테이너 */
+/* ?꾩껜 ?덉씠?꾩썐 而⑦뀒?대꼫 */
 .container { display: flex; flex-direction: column; height: 100%; }
-/* 메인 콘텐츠 영역 */
+/* 硫붿씤 肄섑뀗痢??곸뿭 */
 .main-content { display: flex; flex-grow: 1; overflow: hidden; }
-/* 채팅 전체 영역 */
+/* 梨꾪똿 ?꾩껜 ?곸뿭 */
 .chat-area { flex-grow: 1; display: flex; flex-direction: column; }
 
 /* ==========================================================================
-   1-1. 사이드바
+   1-1. ?ъ씠?쒕컮
    ========================================================================== */
 
-/* 사이드바 컨테이너 */
+/* ?ъ씠?쒕컮 而⑦뀒?대꼫 */
 .sidebar { width: 280px; background-color: #f7f7f8; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; flex-shrink: 0; }
 
-/* 사이드바 헤더 */
+/* ?ъ씠?쒕컮 ?ㅻ뜑 */
 .sidebar-header { padding: 12px; border-bottom: 1px solid #e5e5e5; }
 
-/* 새 대화 버튼 */
+/* ?????踰꾪듉 */
 .new-chat-button { width: 100%; padding: 12px 16px; background-color: #fff; border: 1px solid #d1d5db; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; color: #374151; transition: background-color 0.2s, border-color 0.2s; }
 .new-chat-button:hover { background-color: #f9fafb; border-color: #9ca3af; }
 .new-chat-button:disabled { background-color: #f3f4f6; color: #9ca3af; cursor: not-allowed; opacity: 0.6; }
 .new-chat-button:disabled:hover { background-color: #f3f4f6; border-color: #d1d5db; }
 .new-chat-button svg { flex-shrink: 0; }
 
-/* 대화 목록 */
+/* ???紐⑸줉 */
 .conversation-list { flex-grow: 1; overflow-y: auto; padding: 8px; }
 
-/* 대화 아이템 */
+/* ????꾩씠??*/
 .conversation-item { padding: 12px 14px; margin-bottom: 4px; border-radius: 8px; transition: background-color 0.2s; border: 1px solid transparent; }
 .conversation-item:hover { background-color: #e5e7eb; }
 .conversation-item.active { background-color: #e0e7ff; border-color: #a5b4fc; }
 
-/* 대화 내용 영역 */
+/* ????댁슜 ?곸뿭 */
 .conversation-content { cursor: pointer; }
 
-/* 대화 제목 */
+/* ????쒕ぉ */
 .conversation-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: #1f2937; margin-bottom: 4px; }
 .title-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 삭제 버튼 */
+/* ??젣 踰꾪듉 */
 .delete-conversation-btn { display: none; background: none; border: none; cursor: pointer; padding: 0 4px; font-size: 18px; line-height: 1; color: #dc2626; font-weight: bold; transition: all 0.2s; }
 .delete-conversation-btn:hover { opacity: 0.7; }
 .conversation-item:hover .delete-conversation-btn { display: block; }
 
-/* 대화 정보 */
+/* ????뺣낫 */
 .conversation-info { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #6b7280; }
 .message-count { }
 .conversation-time { }
 
-/* 빈 대화 목록 */
+/* 鍮????紐⑸줉 */
 .empty-conversations { padding: 20px; text-align: center; color: #9ca3af; font-size: 14px; }
 /* ==========================================================================
-   2. 헤더
+   2. ?ㅻ뜑
    ========================================================================== */
 
-.header { display: flex; justify-content: space-between; align-items: center; padding: 10px 30px; height: 60px; background-color: #31333f; color: white; flex-shrink: 0; /* 헤더 크기 고정 */}
+.header { display: flex; justify-content: space-between; align-items: center; padding: 10px 30px; height: 60px; background-color: #31333f; color: white; flex-shrink: 0; /* ?ㅻ뜑 ?ш린 怨좎젙 */}
 .header nav { display: flex; max-width: 1920px; margin: 0 auto; width: 100%; justify-content: space-between; align-items: center; gap: 8px; }
 .header .logo { display: flex; align-items: center; gap: 14px; }
-/* 로고 사이의 구분선 */
+/* 濡쒓퀬 ?ъ씠??援щ텇??*/
 .header nav .v_line { height: 20px; width: 1px; background: oklab(0.999994 0.0000455678 0.0000200868 / 0.3); }
 .header .logo img[data-logo="xperp"] { height: 22px; }
+.header .help-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.header .help-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.55);
+  transform: translateY(-1px);
+}
+.header .help-button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.help-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+.help-button__label {
+  line-height: 1;
+}
+
 /* ==========================================================================
-   3. 초기 화면 커버
+   3. 珥덇린 ?붾㈃ 而ㅻ쾭
    ========================================================================== */
 
-/* 챗봇 첫 화면 컨텐츠 */
+/* 梨쀫큸 泥??붾㈃ 而⑦뀗痢?*/
 .cover-content { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; gap: 14px; }
 .cover-content h1 { font-size: 36px; font-weight: 700; color: rgb(49, 51, 63); line-height: 1.4; }
 .cover-content p { font-size: 18px; color: rgb(107, 114, 128); line-height: 1.6; }
-/* 질문 예시 애니메이션 영역 */
+/* 吏덈Ц ?덉떆 ?좊땲硫붿씠???곸뿭 */
 .cover-quesion-preview { position: relative; height: 28px; overflow: hidden; width: 400px; margin-top: 56px; }
 .cover-quesion-preview:hover .line { animation-play-state: paused; }
 .cover-quesion-preview .line { position: absolute; top: 0; left: 0; width: 100%; opacity: 0; line-height: 28px; transform: translateY(0); color: #1b66a9; font-size: 18px; animation: fadeRotate 9s ease-in-out infinite; }
-/* 질문 예시 순차 등장 */
+/* 吏덈Ц ?덉떆 ?쒖감 ?깆옣 */
 .cover-quesion-preview .line:nth-child(1) { animation-delay: 0s; }
 .cover-quesion-preview .line:nth-child(2) { animation-delay: 3s; }
 .cover-quesion-preview .line:nth-child(3) { animation-delay: 6s; }
-/* 질문 예시 페이드인/아웃 애니메이션 */
+/* 吏덈Ц ?덉떆 ?섏씠?쒖씤/?꾩썐 ?좊땲硫붿씠??*/
 @keyframes fadeRotate {
   0% { opacity: 0; transform: translateY(10px); }
   10% { opacity: 1; transform: translateY(0); }
@@ -97,32 +136,32 @@ html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0
   100% { opacity: 0; transform: translateY(-10px); }
 }
 /* ==========================================================================
-   4. 채팅 메시지
+   4. 梨꾪똿 硫붿떆吏
    ========================================================================== */
 
-/* 메시지 스크롤 영역 */
+/* 硫붿떆吏 ?ㅽ겕濡??곸뿭 */
 .chat-container { width: 100%; margin: 0 auto; padding: 32px 0 20px; overflow-y: auto; display: flex; flex-direction: column; flex-grow: 1; }
-/* 메시지 컨텐츠 너비 제한 */
+/* 硫붿떆吏 而⑦뀗痢??덈퉬 ?쒗븳 */
 .chat-content { flex-grow: 1; max-width: 768px; width: 100%; margin: 0 auto; }
-/* 사용자 메시지 */
+/* ?ъ슜??硫붿떆吏 */
 .user-message-container { display: flex; justify-content: flex-end; margin-bottom: 20px; }
 .user-message { background-color: #31333f; padding: 10px 17px; color: #fff; border-radius: 12px; margin: 0 20px; white-space: break-spaces; max-width: calc(100% - 55px); }
-/* 챗봇 메시지 */
+/* 梨쀫큸 硫붿떆吏 */
 .bot-message-container { display: flex; align-items: flex-start; padding: 0 20px; margin-bottom: 40px; flex-direction: column; }
 .bot-message { background-color: #F5F6F8; padding: 16px 20px; border-radius: 12px; width: 100%; line-height: 1.7; min-height: 46px; word-break: keep-all; }
 
-/* 챗봇 메시지 내부 컨텐츠 */
+/* 梨쀫큸 硫붿떆吏 ?대? 而⑦뀗痢?*/
 .bot-message p { margin: 12px 0; font-size: 16px; line-height: 1.7; color: #2c3e50; }
 .bot-message p:first-child { margin-top: 0; }
 .bot-message p:last-child { margin-bottom: 0; }
 
-/* 리스트 */
+/* 由ъ뒪??*/
 .bot-message ul, .bot-message ol { padding: 0 0 0 24px; margin: 12px 0; }
 .bot-message li { font-size: 16px; line-height: 1.7; color: #2c3e50; margin: 6px 0; }
 .bot-message li::marker { font-size: 14px; }
 .bot-message ul ul, .bot-message ol ol, .bot-message ul ol, .bot-message ol ul { margin: 6px 0; }
 
-/* 제목 */
+/* ?쒕ぉ */
 .bot-message h1, .bot-message h2, .bot-message h3, .bot-message h4 { font-weight: 600; color: #1a202c; margin: 24px 0 12px; line-height: 1.4; }
 .bot-message h1:first-child, .bot-message h2:first-child, .bot-message h3:first-child, .bot-message h4:first-child { margin-top: 0; }
 .bot-message h1 { font-size: 24px; }
@@ -130,42 +169,42 @@ html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0
 .bot-message h3 { font-size: 18px; }
 .bot-message h4 { font-size: 16px; }
 
-/* 강조 */
+/* 媛뺤“ */
 .bot-message strong { font-weight: 600; color: #1a202c; }
 .bot-message em { font-style: italic; }
 
-/* 인라인 코드 */
+/* ?몃씪??肄붾뱶 */
 .bot-message code { background-color: #e5e7eb; color: #c7254e; padding: 2px 6px; border-radius: 4px; font-size: 14px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; }
 
-/* 코드 블록 */
+/* 肄붾뱶 釉붾줉 */
 .bot-message pre { background-color: #2d2d2d; color: #f8f8f2; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 16px 0; }
 .bot-message pre code { background-color: transparent; color: inherit; padding: 0; font-size: 14px; }
 
-/* 블록쿼트 */
+/* 釉붾줉荑쇳듃 */
 .bot-message blockquote { border-left: 4px solid #4a5568; padding: 12px 16px; margin: 16px 0; background-color: #edf2f7; border-radius: 4px; color: #4a5568; }
 .bot-message blockquote p { margin: 0; }
 
-/* 링크 */
+/* 留곹겕 */
 .bot-message a { color: #3182ce; text-decoration: underline; transition: color 0.2s; }
 .bot-message a:hover { color: #2c5282; }
 
-/* 테이블 */
+/* ?뚯씠釉?*/
 .bot-message table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 15px; }
 .bot-message table th, .bot-message table td { border: 1px solid #e2e8f0; padding: 10px 12px; text-align: left; }
 .bot-message table th { background-color: #f7fafc; font-weight: 600; color: #2d3748; }
 .bot-message table tr:nth-child(even) { background-color: #f7fafc; }
 .bot-message table tr:hover { background-color: #edf2f7; }
 
-/* 구분선 */
+/* 援щ텇??*/
 .bot-message hr { border: 0; height: 1px; background-color: #cbd5e0; margin: 24px 0; }
 
-/* 이미지 */
+/* ?대?吏 */
 .bot-message img { max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; }
 /* ==========================================================================
-   5. 로딩 인디케이터
+   5. 濡쒕뵫 ?몃뵒耳?댄꽣
    ========================================================================== */
 
-.bot-message.status-loading { width: auto; /* 로딩 중에는 너비를 자동으로 조절 */
+.bot-message.status-loading { width: auto; /* 濡쒕뵫 以묒뿉???덈퉬瑜??먮룞?쇰줈 議곗젅 */
 }
 .loading-dots { display: inline-flex; gap: 4px; align-items: center; }
 .loading-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .4; animation: dotBlink 1.2s infinite ease-in-out; }
@@ -176,38 +215,38 @@ html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0
   0%, 80%, 100% { transform: translateY(0); opacity: .3; }
   40% { transform: translateY(-3px); opacity: 1; }
 }
-/* 움직임 감소 설정 시 애니메이션 비활성화 */
+/* ?吏곸엫 媛먯냼 ?ㅼ젙 ???좊땲硫붿씠??鍮꾪솢?깊솕 */
 @media (prefers-reduced-motion:reduce) {
   .loading-dot { animation: none; opacity: .7; }
 }
 /* ==========================================================================
-   6. 채팅 입력 영역
+   6. 梨꾪똿 ?낅젰 ?곸뿭
    ========================================================================== */
 
 .chat-input-area { padding: 20px 20px 40px; border-top: 1px solid oklch(0.967 0.003 264.542); user-select: none; }
 .chat-input-wrapper { position: relative; max-width: 768px; margin: 0 auto ; user-select: none; }
-/* 메시지 입력창(textarea) */
+/* 硫붿떆吏 ?낅젰李?textarea) */
 .chat-input { width: 100%; padding: 17px 70px 19px 28px; border-radius: 30px; border: 1px solid #dee2e6; font-size: 1em; background-color: white; font-family: Pretendard; resize: none; overflow: hidden; line-height: 1.5; min-height: 60px; max-height: 120px; box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.1) 0px 2px 4px -2px; }
 .chat-input::placeholder { color: #6c757d; font-family: Pretendard; font-weight: 400; }
 .chat-input:focus-visible { box-shadow: 0 0 0 6px rgba(24, 134, 197, 0.1); outline: none; border-color: oklab(0.708 0 0 / 0.5); }
-.chat-input.status-busy { cursor: not-allowed; /* 전송 중일 때 커서 변경 */
+.chat-input.status-busy { cursor: not-allowed; /* ?꾩넚 以묒씪 ??而ㅼ꽌 蹂寃?*/
 }
-/* 입력창 하단 설명 */
+/* ?낅젰李??섎떒 ?ㅻ챸 */
 .chat-input-desc { position: relative; max-width: 768px; margin: 21px auto 0; user-select: none; color: rgb(151, 151, 151); font-size: 14px; text-align: center; }
-/* 전송 버튼 */
+/* ?꾩넚 踰꾪듉 */
 .send-button { position: absolute; top: calc(50% - 1px); right: 16px; transform: translateY(-50%); background-color: #31333f; border: none; border-radius: 50%; width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.3s, color 0.3s; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20class%3D%22lucide%20lucide-arrow-up%20w-5%20h-5%22%20aria-hidden%3D%22true%22%20style%3D%22color%3A%20rgb(255%2C%20255%2C%20255)%3B%22%3E%3Cpath%20d%3D%22m5%2012%207-7%207%207%22%3E%3C/path%3E%3Cpath%20d%3D%22M12%2019V5%22%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-size: 14px 14px; background-position: center; }
-.send-button:disabled { background-color: rgb(209, 213, 219); /* 비활성화 상태 */
+.send-button:disabled { background-color: rgb(209, 213, 219); /* 鍮꾪솢?깊솕 ?곹깭 */
 }
-.send-button.status-busy { pointer-events: none; background-color: rgb(209, 213, 219) !important; /* 전송 중 상태 */
+.send-button.status-busy { pointer-events: none; background-color: rgb(209, 213, 219) !important; /* ?꾩넚 以??곹깭 */
 }
 /* ==========================================================================
-   7. 피드백 시스템
+   7. ?쇰뱶諛??쒖뒪??
    ========================================================================== */
 
-/* 피드백 전체 컨테이너 */
+/* ?쇰뱶諛??꾩껜 而⑦뀒?대꼫 */
 .feedback-box { display: flex; flex: 1; margin-top: 8px; margin-left: 8px; flex-direction: column; width: calc(100% - 8px); }
-/* '좋아요/싫어요' 버튼 그룹 */
-.feedback-buttons { display: flex; gap: 4px; align-items: center; /* align-items 추가 */
+/* '醫뗭븘???レ뼱?? 踰꾪듉 洹몃９ */
+.feedback-buttons { display: flex; gap: 4px; align-items: center; /* align-items 異붽? */
 }
 .icon-button { padding: 8px; border-radius: 9999px; transition: background-color 0.2s; cursor: pointer; background: transparent; border: none; display: block; user-select: none;}
 .icon-button:hover { background-color: #f3f4f6; }
@@ -216,35 +255,35 @@ html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0
 .dislike-icon { background-image: url("/static/images/dislike.png"); }
 .icon-button.status-selected .like-icon { background-image: url("/static/images/like-on.png"); }
 .icon-button.status-selected .dislike-icon { background-image: url("/static/images/dislike-on.png"); }
-/* 복사 버튼 */
+/* 蹂듭궗 踰꾪듉 */
 .copy-button { color: #6b7280; }
 .copy-button:hover { background-color: #f3f4f6; }
 .copy-button.copied { color: #10b981; background-color: #d1fae5; }
 .copy-button svg { display: block; }
-/* 피드백 상세 입력 폼 */
+/* ?쇰뱶諛??곸꽭 ?낅젰 ??*/
 .feedback-form { margin-top: 8px; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 0.5rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); padding: 20px 21px; }
 .feedback-title { font-size: 16px; color: #374151; font-weight: 500; margin-bottom: 12px; }
 .feedback-input-box { display: flex; margin: 0 0 32px 0; }
-/* 피드백 이름 입력 */
+/* ?쇰뱶諛??대쫫 ?낅젰 */
 .feedback-input { width: 100%; height: 46px; padding: 4px 14px; font-size: 14px; line-height: 1.5; border: 1px solid #d1d5db; border-radius: 6px; resize: none; }
 .feedback-input:focus { border-color: #31333f; outline: none; box-shadow: 0 0 0 3px rgba(49, 51, 63, 0.5); }
-/* 피드백 옵션 버튼 그룹 */
+/* ?쇰뱶諛??듭뀡 踰꾪듉 洹몃９ */
 .feedback-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 8px 0 16px 0; }
 .option-button { font-size: 14px; padding: 12px 20px; border-radius: 9999px; background-color: #ffffff; border: 1px solid #e5e5e5; text-align: left; cursor: pointer; transition: background-color 0.2s, border-color 0.2s; }
 .option-button:hover { background-color: #f3f4f6; border-color: #d1d5db; }
 .option-button.selected, .option-button.selected:hover { background: rgb(49, 51, 63); color: #fff; }
-/* 피드백 기타 의견 입력 */
+/* ?쇰뱶諛?湲고? ?섍껄 ?낅젰 */
 .feedback-comment-box { margin-top: 8px; }
 .feedback-textarea { width: 100%; height: 80px; padding: 12px 14px; font-size: 14px; line-height: 1.5; border: 1px solid #d1d5db; border-radius: 6px; resize: none; }
 .feedback-textarea:focus { border-color: #31333f; outline: none; box-shadow: 0 0 0 3px rgba(49, 51, 63, 0.5); }
-/* 피드백 제출/취소 버튼 영역 */
+/* ?쇰뱶諛??쒖텧/痍⑥냼 踰꾪듉 ?곸뿭 */
 .feedback-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .btn-cancel { padding: 8px 16px; font-size: f14px; color: #4b5563; background-color: #ffffff; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; }
 .btn-cancel:hover { background-color: #f9fafb; }
 .btn-submit { padding: 8px 16px; font-size: 14px; color: #ffffff; background-color: #31333f; border-radius: 6px; cursor: pointer; border: none; }
 .btn-submit:hover:not(:disabled) { background-color: #2c2e38; }
 .btn-submit:disabled { background-color: #8e90a2; cursor: not-allowed; }
-/* 피드백 제출 완료 후 */
+/* ?쇰뱶諛??쒖텧 ?꾨즺 ??*/
 .feedback-result-box { border: 1px solid #e5e7eb; background-color: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); padding: 16px 0 12px; font-size: 14px; color: #333; width: 100%; max-width: 80%; margin-top: 10px; }
 .feedback-selected { padding: 0 20px 0; color: #374151; font-size: 15px; font-weight: 500; margin-bottom: 12px; }
 .feedback-result { border-top: 1px solid #e5e7eb; padding: 7px 20px 0; margin-top: 14px; display: flex; justify-content: space-between; align-items: center; }
@@ -252,48 +291,49 @@ html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0
 .btn-close { background-color: oklab(0.985496 -0.000727939 -0.00179028); color: #4b5563; font-size: 14px; padding: 7px 14px; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; transition: background-color 0.2s ease; }
 .btn-close:hover { background-color: #f3f4f6; }
 /* ==========================================================================
-   8. 유틸리티 및 접근성
+   8. ?좏떥由ы떚 諛??묎렐??
    ========================================================================== */
 
-/* 숨김 클래스 */
+/* ?④? ?대옒??*/
 .hidden { display: none !important; }
-/* 스크린 리더 전용 */
+/* ?ㅽ겕由?由щ뜑 ?꾩슜 */
 .sr-only { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); overflow: hidden; white-space: nowrap; }
 
 /* ==========================================================================
-   9. 모달
+   9. 紐⑤떖
    ========================================================================== */
 
-/* 모달 배경 */
+/* 紐⑤떖 諛곌꼍 */
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); justify-content: center; align-items: center; }
 
-/* 모달 컨텐츠 */
+/* 紐⑤떖 而⑦뀗痢?*/
 .modal-content { background-color: #fff; border-radius: 12px; width: 90%; max-width: 420px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); animation: modalFadeIn 0.2s ease-out; }
 
-/* 모달 헤더 */
+/* 紐⑤떖 ?ㅻ뜑 */
 .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid #e5e7eb; }
 .modal-header h3 { font-size: 18px; font-weight: 600; color: #1f2937; margin: 0; }
 
-/* 모달 바디 */
+/* 紐⑤떖 諛붾뵒 */
 .modal-body { padding: 20px 24px; }
 .modal-body p { font-size: 15px; color: #4b5563; line-height: 1.6; margin: 0; }
 
-/* 모달 푸터 */
+/* 紐⑤떖 ?명꽣 */
 .modal-footer { padding: 16px 24px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 10px; }
 
-/* 모달 버튼 */
+/* 紐⑤떖 踰꾪듉 */
 .modal-btn { padding: 10px 20px; font-size: 14px; font-weight: 500; border-radius: 6px; cursor: pointer; transition: all 0.2s; border: none; }
 
-/* 취소 버튼 */
+/* 痍⑥냼 踰꾪듉 */
 .modal-btn-cancel { background-color: #fff; color: #4b5563; border: 1px solid #d1d5db; }
 .modal-btn-cancel:hover { background-color: #f9fafb; }
 
-/* 확인 버튼 */
+/* ?뺤씤 踰꾪듉 */
 .modal-btn-confirm { background-color: #31333f; color: #fff; }
 .modal-btn-confirm:hover { background-color: #2c2e38; }
 
-/* 모달 애니메이션 */
+/* 紐⑤떖 ?좊땲硫붿씠??*/
 @keyframes modalFadeIn {
   from { opacity: 0; transform: translateY(-20px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
