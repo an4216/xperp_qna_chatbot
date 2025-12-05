@@ -231,6 +231,7 @@
         sendButton.disabled = true;
         sendButton.classList.add('status-busy');
         chatInput.setAttribute('aria-busy', 'true');
+        updateNewChatButtonState();
       };
 
       const unlockInput = () => {
@@ -239,6 +240,7 @@
         chatInput.removeAttribute('aria-busy');
         chatInput.focus();
         updateSendButtonState();
+        updateNewChatButtonState();
       };
 
       const updateSendButtonState = () => {
@@ -248,8 +250,8 @@
       const updateNewChatButtonState = () => {
         const newChatButton = document.querySelector('.new-chat-button');
         if (newChatButton) {
-          // 대화가 시작되었거나 메시지 전송 중일 때 비활성화
-          newChatButton.disabled = hasSentFirstMessage || isBusy;
+          // 스트리밍 중일 때만 비활성화
+          newChatButton.disabled = isBusy;
         }
       };
 
@@ -283,7 +285,6 @@
             cover.remove();
           }
           hasSentFirstMessage = true;
-          updateNewChatButtonState();
         }
 
         addMessage('user', raw);
@@ -861,9 +862,6 @@
           item.classList.remove('active');
         });
 
-        // 새 대화 버튼 활성화
-        updateNewChatButtonState();
-
         // 첫 메시지 전송 시 loadConversations()가 호출되어 자동으로 목록에 추가됨
       };
 
@@ -1048,9 +1046,6 @@
 
           // 첫 메시지 상태 업데이트
           hasSentFirstMessage = data.messages.length > 0;
-
-          // 새 대화 버튼 상태 업데이트
-          updateNewChatButtonState();
 
           // 대화 목록에서 활성 상태 업데이트
           updateActiveConversation();
