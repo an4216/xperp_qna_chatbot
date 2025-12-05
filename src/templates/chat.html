@@ -245,6 +245,14 @@
         sendButton.disabled = !chatInput.value.trim();
       };
 
+      const updateNewChatButtonState = () => {
+        const newChatButton = document.querySelector('.new-chat-button');
+        if (newChatButton) {
+          // 대화가 시작되었거나 메시지 전송 중일 때 비활성화
+          newChatButton.disabled = hasSentFirstMessage || isBusy;
+        }
+      };
+
       const scrollToBottom = () => {
         chatContainer.scrollTo({
           top: chatContainer.scrollHeight,
@@ -275,6 +283,7 @@
             cover.remove();
           }
           hasSentFirstMessage = true;
+          updateNewChatButtonState();
         }
 
         addMessage('user', raw);
@@ -831,8 +840,18 @@
         localStorage.setItem('chat_id_' + userId, chatId);
         currentConversationId = chatId;
 
-        // 화면 초기화 (환영 메시지 표시하지 않음)
-        chatContent.innerHTML = '';
+        // 화면 초기화 및 환영 메시지 표시
+        chatContent.innerHTML = `
+          <div class="cover-content">
+            <h1>XpERP 상담 챗봇에 오신 것을 환영합니다.</h1>
+            <p>공동주택 관리 프로그램 XpERP의 사용법, 오류에 대해 궁금한 점이 있다면 언제든 문의해 주세요!</p>
+            <div class="cover-quesion-preview" aria-live="polite">
+              <div class="line">Q. 전출처리는 어떻게 하나요?</div>
+              <div class="line">Q. 입주민 차량 등록 방법이 궁금해요</div>
+              <div class="line">Q. 관리비 조회 방법을 알려주세요</div>
+            </div>
+          </div>
+        `;
         hasSentFirstMessage = false;
         chatInput.value = '';
         chatInput.focus();
@@ -841,6 +860,9 @@
         document.querySelectorAll('.conversation-item').forEach(item => {
           item.classList.remove('active');
         });
+
+        // 새 대화 버튼 활성화
+        updateNewChatButtonState();
 
         // 첫 메시지 전송 시 loadConversations()가 호출되어 자동으로 목록에 추가됨
       };
@@ -1027,6 +1049,9 @@
           // 첫 메시지 상태 업데이트
           hasSentFirstMessage = data.messages.length > 0;
 
+          // 새 대화 버튼 상태 업데이트
+          updateNewChatButtonState();
+
           // 대화 목록에서 활성 상태 업데이트
           updateActiveConversation();
 
@@ -1041,6 +1066,9 @@
 
       // 페이지 로드 시 대화 목록 로드
       loadConversations();
+
+      // 새 대화 버튼 상태 초기화
+      updateNewChatButtonState();
     });
 
     window.addEventListener("pageshow", (event) => {

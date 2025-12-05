@@ -31,6 +31,8 @@ html, body, p, div, a, ol, ul, li, label, input, h3, h2, h1, button { padding: 0
 /* 새 대화 버튼 */
 .new-chat-button { width: 100%; padding: 12px 16px; background-color: #fff; border: 1px solid #d1d5db; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; color: #374151; transition: background-color 0.2s, border-color 0.2s; }
 .new-chat-button:hover { background-color: #f9fafb; border-color: #9ca3af; }
+.new-chat-button:disabled { background-color: #f3f4f6; color: #9ca3af; cursor: not-allowed; opacity: 0.6; }
+.new-chat-button:disabled:hover { background-color: #f3f4f6; border-color: #d1d5db; }
 .new-chat-button svg { flex-shrink: 0; }
 
 /* 대화 목록 */
