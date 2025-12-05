@@ -475,12 +475,13 @@
           if (selected) selected.classList.remove('selected');
           updateSubmitState(box);
 
-          box.querySelectorAll('.icon-button').forEach(btn => {
-            btn.classList.remove('status-selected');
-            btn.disabled = true;
-          });
+          // 좋아요/싫어요 버튼만 비활성화 (복사 버튼은 제외)
           likeButton.classList.add('status-selected');
-          if (dislikeButton) dislikeButton.remove();
+          likeButton.disabled = true;
+          if (dislikeButton) {
+            dislikeButton.disabled = true;
+            dislikeButton.remove();
+          }
 
           // ✅ wrapper에서 UUID 읽기
           const conversationUuid = wrapper.dataset.conversationUuid;
