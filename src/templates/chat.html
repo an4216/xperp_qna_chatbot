@@ -837,53 +837,12 @@
         chatInput.value = '';
         chatInput.focus();
 
-        // 대화 목록에 빈 대화 즉시 추가
-        const listEl = document.getElementById('conversationList');
-
-        // "대화 내역이 없습니다" 메시지 제거
-        const emptyMsg = listEl.querySelector('.empty-conversations');
-        if (emptyMsg) {
-          emptyMsg.remove();
-        }
-
-        // 새 대화 아이템 생성
-        const item = document.createElement('div');
-        item.className = 'conversation-item active';
-        item.dataset.conversationId = chatId;
-
-        item.innerHTML = `
-          <div class="conversation-content" data-conversation-id="${chatId}">
-            <div class="conversation-title">
-              <span class="title-text">새 대화</span>
-              <button class="delete-conversation-btn" data-conversation-id="${chatId}" title="대화 삭제">−</button>
-            </div>
-            <div class="conversation-info">
-              <span class="message-count">0개 메시지</span>
-              <span class="conversation-time">방금 전</span>
-            </div>
-          </div>
-        `;
-
-        // 대화 내용 클릭 시 대화 전환
-        const contentDiv = item.querySelector('.conversation-content');
-        contentDiv.onclick = () => switchConversation(chatId);
-
-        // 삭제 버튼 클릭 이벤트
-        const deleteBtn = item.querySelector('.delete-conversation-btn');
-        deleteBtn.onclick = (e) => {
-          e.stopPropagation();
-          deleteConversation(chatId);
-        };
-
-        // 맨 위에 추가
-        listEl.insertBefore(item, listEl.firstChild);
-
-        // 다른 대화들의 활성 상태 제거
-        document.querySelectorAll('.conversation-item').forEach(otherItem => {
-          if (otherItem !== item) {
-            otherItem.classList.remove('active');
-          }
+        // 대화 목록의 활성 상태 제거 (아직 목록에는 추가하지 않음)
+        document.querySelectorAll('.conversation-item').forEach(item => {
+          item.classList.remove('active');
         });
+
+        // 첫 메시지 전송 시 loadConversations()가 호출되어 자동으로 목록에 추가됨
       };
 
       // 대화 삭제
@@ -931,16 +890,8 @@
           const response = await fetch(`/conversation/${conversationId}/messages?user_id=${userId}`);
           const data = await response.json();
 
-          // 메시지가 없는 새 대화인 경우 (404 또는 빈 배열)
-          if (data.status !== 'ok' || !data.messages || data.messages.length === 0) {
-            // 새 대화로 처리 (화면만 초기화)
-            chatContent.innerHTML = '';
-            chatId = conversationId;
-            currentConversationId = conversationId;
-            localStorage.setItem('chat_id_' + userId, chatId);
-            hasSentFirstMessage = false;
-            updateActiveConversation();
-            chatInput.focus();
+          if (data.status !== 'ok' || !data.messages) {
+            showAlert('대화를 불러올 수 없습니다.', '오류');
             return;
           }
 
