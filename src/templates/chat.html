@@ -207,7 +207,8 @@
         chatId = userId + '_' + (Date.now() + '_' + Math.random().toString(16).slice(2));
         localStorage.setItem('chat_id_' + userId, chatId);
       }
-      currentConversationId = chatId;
+      // 새로고침 시 대화 내용이 로드되지 않은 상태에서 currentConversationId를 설정하지 않음
+      // 사용자가 대화를 클릭하면 switchConversation에서 설정됨
 
       // ✅ 홈 버튼 클릭 시 세션 초기화 후 리로드
       document.querySelector('.chat-home')?.addEventListener('click', (e) => {
