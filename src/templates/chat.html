@@ -644,8 +644,41 @@
             // 텍스트만 추출 (마크다운 HTML 제거)
             const textContent = botMessage.innerText;
 
+            // 복사 함수 (HTTPS/HTTP 모두 지원)
+            const copyToClipboard = (text) => {
+              // HTTPS 또는 localhost인 경우 Clipboard API 사용
+              if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+              } else {
+                // HTTP인 경우 fallback 메서드 사용
+                return new Promise((resolve, reject) => {
+                  const textarea = document.createElement('textarea');
+                  textarea.value = text;
+                  textarea.style.position = 'fixed';
+                  textarea.style.left = '-999999px';
+                  textarea.style.top = '-999999px';
+                  document.body.appendChild(textarea);
+                  textarea.focus();
+                  textarea.select();
+
+                  try {
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    if (successful) {
+                      resolve();
+                    } else {
+                      reject(new Error('복사 명령 실패'));
+                    }
+                  } catch (err) {
+                    document.body.removeChild(textarea);
+                    reject(err);
+                  }
+                });
+              }
+            };
+
             // 클립보드에 복사
-            navigator.clipboard.writeText(textContent).then(() => {
+            copyToClipboard(textContent).then(() => {
               // 복사 성공 피드백
               const originalHTML = copyButton.innerHTML;
               copyButton.innerHTML = `
