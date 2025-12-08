@@ -10,6 +10,11 @@
 import re
 from typing import Callable, Optional
 
+from src.core.messages import (
+    get_validation_message,
+    get_topic_message,
+)
+
 
 # =========================================
 # 1. 악성 패턴 감지
@@ -84,39 +89,39 @@ def validate_input(
     """
     # 0. 공백만 있는 입력 차단 (최우선)
     if message.strip() == "":
-        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
+        return False, get_validation_message("EMPTY_OR_SHORT_INPUT")
 
     # 1. 길이 검증
     if len(message) < min_length:
-        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
+        return False, get_validation_message("EMPTY_OR_SHORT_INPUT")
 
     if len(message) > max_length:
-        return False, "질문이 너무 깁니다. 간결하게 요약해서 다시 입력해주세요."
+        return False, get_validation_message("TOO_LONG_INPUT")
 
     # 2. 의미 없는 입력 패턴 차단
     stripped = message.strip()
 
     # 숫자만 있는 입력 (예: "1", "123")
     if stripped.isdigit():
-        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
+        return False, get_validation_message("EMPTY_OR_SHORT_INPUT")
 
     # 특수문자만 있는 입력 (예: "!!!", "???")
     if re.match(r'^[^\w\s가-힣]+$', stripped, re.UNICODE):
-        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
+        return False, get_validation_message("EMPTY_OR_SHORT_INPUT")
 
     # 같은 문자 반복 (예: "aaaa", "1111")
     if len(set(stripped)) == 1 and len(stripped) > 2:
-        return False, "XPERP 연말정산에 대해 구체적으로 질문해주세요."
+        return False, get_validation_message("EMPTY_OR_SHORT_INPUT")
 
     # 3. 악성 패턴 검증
     if contains_malicious_pattern(message):
-        return False, "부적절한 입력이 감지되었습니다. XPERP 연말정산 관련 질문만 입력해주세요."
+        return False, get_validation_message("MALICIOUS_PATTERN")
 
     # 4. 제어 문자 검증
     if any(ord(char) < 32 and char not in ['\n', '\r', '\t'] for char in message):
-        return False, "올바른 형식으로 질문을 입력해주세요."
+        return False, get_validation_message("INVALID_FORMAT")
 
-    return True, "OK"
+    return True, get_validation_message("SUCCESS")
 
 
 # =========================================
@@ -154,7 +159,7 @@ def validate_yearend_tax_topic(
     # 1. 현재 질문에 키워드가 있으면 바로 허용
     for keyword in yearend_keywords:
         if keyword in question_lower:
-            return True, "OK", ""
+            return True, get_topic_message("SUCCESS"), ""
 
     # 2. 일반적인 인사말이나 도움 요청은 허용
     greeting_patterns = [
@@ -170,7 +175,7 @@ def validate_yearend_tax_topic(
 
     for pattern in greeting_patterns:
         if re.search(pattern, question_lower):
-            return True, "OK", ""
+            return True, get_topic_message("SUCCESS"), ""
 
     # 3. 후속 질문 패턴 감지 (대명사/지시어/맥락 의존 명사)
     followup_patterns = [
@@ -204,10 +209,10 @@ def validate_yearend_tax_topic(
             # 이전 질문을 찾았으면 후속 질문 허용
             if previous_user_question:
                 print(f"[INFO] 후속 질문 감지 - 이전 질문: {previous_user_question[:30]}...")
-                return True, "OK", previous_user_question
+                return True, get_topic_message("SUCCESS"), previous_user_question
 
         except Exception as e:
             print(f"[WARN] 대화 이력 확인 실패: {e}")
 
     # 4. 모든 조건 불만족 시 거부
-    return False, "안녕하세요! 😊 저는 연말정산 전문 상담 챗봇입니다.\n연말정산에 관해 궁금하신 점을 말씀해주시면 친절하게 안내해드릴게요!", ""
+    return False, get_topic_message("OFF_TOPIC"), ""
