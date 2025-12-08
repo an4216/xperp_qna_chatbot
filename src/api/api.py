@@ -313,7 +313,7 @@ async def get_conversations(user_id: str):
 
     Returns:
         JSON 응답:
-        - conversations: 대화 목록 배열
+        - conversations: 대화 목록 배열 (최근 1개월 이내, 최대 50개)
           - conversation_id: 대화 고유 ID
           - first_message: 첫 메시지 (제목 대신 사용)
           - message_count: 대화 내 메시지 수
@@ -339,6 +339,7 @@ async def get_conversations(user_id: str):
             FROM feedback f1
             WHERE f1.user_id = %s
             AND f1.conversation_id IS NOT NULL
+            AND f1.created_at >= NOW() - INTERVAL '1 month'
             GROUP BY f1.conversation_id
             ORDER BY MAX(f1.created_at) DESC
             LIMIT 50
