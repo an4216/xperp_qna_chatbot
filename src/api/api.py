@@ -339,8 +339,8 @@ async def get_conversations(user_id: str):
             FROM feedback f1
             WHERE f1.user_id = %s
             AND f1.conversation_id IS NOT NULL
-            AND f1.created_at >= NOW() - INTERVAL '1 month'
             GROUP BY f1.conversation_id
+            HAVING MAX(f1.created_at) >= NOW() - INTERVAL '1 month'
             ORDER BY MAX(f1.created_at) DESC
             LIMIT 50
         """
