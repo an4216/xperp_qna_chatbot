@@ -1,48 +1,84 @@
 # llm.py
 
+# =========================================
 # LangChain 및 관련 라이브러리 import
-from langchain_core.output_parsers import StrOutputParser
+# =========================================
+from pathlib import Path
+from collections import OrderedDict
+from typing import List, Dict
+import os, time, re, json
+
+from dotenv import load_dotenv
+from rapidfuzz import fuzz
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, FewShotChatMessagePromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import TextLoader, PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-
-# ✅ vLLM(OpenAI 호환)용 LLM
 from langchain_openai import ChatOpenAI
-# ✅ HuggingFace bge-m3 임베딩
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 
-from pathlib import Path
-
 from config import answer_examples
-import os
-import time
-import re
-import json
-
 
 # =========================================
-# 환경설정 (RunPod vLLM OpenAI 호환)
+# 환경설정 (.env 로드)
 # =========================================
-# 반드시 /v1 포함
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "https://zc2liu1ru5cjgm-8000.proxy.runpod.net/v1")
-# /v1/models 의 data[].id 값과 정확히 일치해야 함
-MODEL_LLM     = os.getenv("MODEL_LLM", "unsloth/gemma-3-27b-it")
-# 키 검증을 안 해도 ChatOpenAI에는 문자열이 필요 → 더미키 사용
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "not-needed")
+load_dotenv()
 
-TOP_K       = int(os.getenv("TOP_K", "4"))
-VECTOR_DIR  = os.getenv("VECTOR_DIR", "vectorstore")
+VLLM_BASE_URL   = os.getenv("VLLM_BASE_URL")
+MODEL_LLM       = os.getenv("MODEL_LLM")
+OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "not-needed")
 
-# 세션별 대화 히스토리 저장소
-store = {}
+TOP_K           = int(os.getenv("TOP_K", "4"))
+VECTOR_DIR      = os.getenv("VECTOR_DIR", "vectorstore")
+MENU_FILE_PATH  = os.getenv("MENU_FILE_PATH", "docs/menus/menus.txt")
+META_PATH       = Path("data/artifacts/index_meta.json")
+
+# =========================================
+# 세션 관리
+# =========================================
+class SessionStore:
+    """세션 기반 대화 기록 관리 (LRU + Timeout)"""
+    def __init__(self, max_sessions=100, session_timeout=3600):
+        self.store = OrderedDict()
+        self.max_sessions = max_sessions
+        self.session_timeout = session_timeout
+        self.session_timestamps = {}
+
+    def get_session(self, session_id: str):
+        self._cleanup_old_sessions()
+
+        if session_id not in self.store:
+            if len(self.store) >= self.max_sessions:
+                oldest_session = next(iter(self.store))
+                del self.store[oldest_session]
+                self.session_timestamps.pop(oldest_session, None)
+
+            self.store[session_id] = ChatMessageHistory()
+
+        self.session_timestamps[session_id] = time.time()
+        self.store.move_to_end(session_id)  # LRU 갱신
+        return self.store[session_id]
+
+    def _cleanup_old_sessions(self):
+        current_time = time.time()
+        expired = [
+            sid for sid, ts in self.session_timestamps.items()
+            if current_time - ts > self.session_timeout
+        ]
+        for sid in expired:
+            self.store.pop(sid, None)
+            self.session_timestamps.pop(sid, None)
+            print(f"[INFO] 만료된 세션 제거: {sid}")
+
+session_store = SessionStore()
+
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    return session_store.get_session(session_id)
 
 # =========================================
 # 전역 캐싱 변수
@@ -51,295 +87,253 @@ _cached_embeddings = None
 _cached_retriever = None
 _cached_llm = None
 _cached_rag_chain = None
-
-META_PATH = Path("data/artifacts/index_meta.json")
-_cached_retriever = None
+_cached_vectorstore = None
 _cached_fingerprint = None
+_cached_menu_dict = None
 
-def _load_fingerprint():
-    if META_PATH.exists():
-        try:
-            meta = json.loads(META_PATH.read_text(encoding="utf-8"))
-            return meta.get("fingerprint")
-        except Exception:
-            return None
-    return None
-
-# -------------------------------
-# 유틸: few-shot 예시의 '출처' 문구 제거
-# -------------------------------
-def sanitize_examples(examples: list[dict]) -> list[dict]:
-    start = time.perf_counter()
-    sanitized = []
-    for ex in examples:
-        inp = ex.get("input", "")
-        ans = ex.get("answer", "")
-
-        # 1) '✅ 매뉴얼 참조:' 라인 제거
-        ans = re.sub(r'^\s*✅\s*매뉴얼\s*참조:.*$', '', ans, flags=re.MULTILINE)
-
-        # 2) 본문 내 임의 출처 괄호 제거: (출처: ...페이지)
-        ans = re.sub(r'\(출처:\s*[^)]+\)', '', ans)
-
-        # 3) '...페이지 참조' 류 문구 제거 (선택적)
-        ans = re.sub(r'[(（]?\s*[^)\n]*매뉴얼[^)\n]*\d+\s*페이지\s*참조[)）]?', '', ans)
-
-        # 4) 여분 공백 정리
-        ans = re.sub(r'\n{3,}', '\n\n', ans).strip()
-
-        sanitized.append({"input": inp, "answer": ans})
-    elapsed = (time.perf_counter() - start) * 1000
-    print(f"[TIMER] sanitize_examples 완료 ({elapsed:.2f} ms)")
-    return sanitized
-
-
-# 1. 세션별 대화 이력 객체 반환
-def get_session_history(session_id: str) -> BaseChatMessageHistory:
-    if session_id not in store:
-        store[session_id] = ChatMessageHistory()
-    return store[session_id]
-
-
-# ✅ bge-m3 임베딩 인스턴스 생성 (전역 캐싱)
+# =========================================
+# 임베딩 & 벡터스토어
+# =========================================
 def get_embeddings():
     global _cached_embeddings
     if _cached_embeddings is None:
         start = time.perf_counter()
         _cached_embeddings = HuggingFaceBgeEmbeddings(
             model_name="BAAI/bge-m3",
-            encode_kwargs={"normalize_embeddings": True}  # 코사인 유사도 안정화
+            encode_kwargs={"normalize_embeddings": True}
         )
-        elapsed = (time.perf_counter() - start) * 1000
-        print(f"[TIMER] get_embeddings 최초 로드 완료 ({elapsed:.2f} ms)")
+        print(f"[TIMER] get_embeddings 로드 완료 ({(time.perf_counter() - start) * 1000:.2f} ms)")
     return _cached_embeddings
 
+def _load_metadata():
+    if not META_PATH.exists():
+        return {}
+    try:
+        return json.loads(META_PATH.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[WARNING] 메타데이터 로드 실패: {e}")
+        return {}
 
-# 2. 문서 로드 + 벡터스토어 생성 + retriever 반환 (전역 캐싱)
+def _load_fingerprint():
+    return _load_metadata().get("docs_fingerprint")
+
 def get_retriever():
-    global _cached_retriever, _cached_fingerprint
-
-    start = time.perf_counter()
+    global _cached_retriever, _cached_vectorstore, _cached_fingerprint
     os.makedirs(VECTOR_DIR, exist_ok=True)
+    current_fp = _load_fingerprint()
 
-    # 최신 fingerprint 불러오기
-    current_fp = None
-    if META_PATH.exists():
-        try:
-            import json
-            current_fp = json.loads(META_PATH.read_text(encoding="utf-8")).get("fingerprint")
-        except Exception:
-            current_fp = None
-
-    # retriever가 없거나, fingerprint가 변경되었으면 새로 로드
     if _cached_retriever is None or _cached_fingerprint != current_fp:
-        print("[INFO] retriever reload triggered")
+        print(f"[INFO] retriever reload (old={_cached_fingerprint}, new={current_fp})")
+        index_path = os.path.join(VECTOR_DIR, "index.faiss")
+        if not os.path.exists(index_path):
+            raise FileNotFoundError(f"❌ 벡터스토어 없음: {index_path}. 01_ingest.py 실행 필요")
 
-        # 저장된 벡터스토어 있으면 로드
-        if os.path.exists(os.path.join(VECTOR_DIR, "index.faiss")):
-            vectorstore = FAISS.load_local(
-                VECTOR_DIR,
-                get_embeddings(),
-                allow_dangerous_deserialization=True
-            )
-            _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
-            _cached_fingerprint = current_fp
-            elapsed = (time.perf_counter() - start) * 1000
-            print(f"[TIMER] get_retriever: 기존 벡터스토어 로드 완료 ({elapsed:.2f} ms)")
-            return _cached_retriever
-
-        # 벡터스토어가 없으면 새로 생성
-        embedding = get_embeddings()
-        documents = []
-        docs_dirs = ["docs/manual", "docs/qna"]
-
-        for docs_dir in docs_dirs:
-            if not os.path.isdir(docs_dir):
-                continue
-            for filename in os.listdir(docs_dir):
-                file_path = os.path.join(docs_dir, filename)
-                manual_name = os.path.splitext(filename)[0]
-
-                if filename.endswith(".txt"):
-                    loader = TextLoader(file_path, encoding='utf-8')
-                    docs = loader.load()
-                    for doc in docs:
-                        doc.metadata["source"] = manual_name
-                    documents.extend(docs)
-
-                elif filename.endswith(".pdf"):
-                    loader = PyPDFLoader(file_path)
-                    pages = loader.load()
-                    for i, page in enumerate(pages):
-                        page.metadata["source"] = manual_name
-                        page.metadata["page"] = i + 1
-                        citation = f"\n\n(출처: {manual_name} {i + 1}페이지)"
-                        page.page_content += citation
-                        documents.append(page)
-
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        split_docs = splitter.split_documents(documents)
-        split_docs = [doc for doc in split_docs if len(doc.page_content.strip()) > 10]
-
-        MAX_CHUNKS = 500
-        if len(split_docs) > MAX_CHUNKS:
-            split_docs = split_docs[:MAX_CHUNKS]
-
-        vectorstore = FAISS.from_documents(split_docs, embedding)
-        vectorstore.save_local(VECTOR_DIR)
-
-        _cached_retriever = vectorstore.as_retriever(search_kwargs={'k': TOP_K})
+        embeddings = get_embeddings()
+        _cached_vectorstore = FAISS.load_local(
+            VECTOR_DIR, embeddings, allow_dangerous_deserialization=True
+        )
+        _cached_retriever = _cached_vectorstore.as_retriever(search_kwargs={'k': TOP_K})
         _cached_fingerprint = current_fp
-        elapsed = (time.perf_counter() - start) * 1000
-        print(f"[TIMER] get_retriever: 신규 벡터스토어 생성 완료 ({elapsed:.2f} ms)")
-
     return _cached_retriever
 
-# 3. 대화 맥락을 반영한 retriever 반환 (standalone question 변환 + 벡터검색)
+# =========================================
+# LLM 초기화
+# =========================================
+def get_llm():
+    global _cached_llm
+    if _cached_llm is None:
+        _cached_llm = ChatOpenAI(
+            base_url=VLLM_BASE_URL,
+            api_key=OPENAI_API_KEY,
+            model=MODEL_LLM,
+        )
+    return _cached_llm
+
+# =========================================
+# Dictionary 기반 질문 보정
+# =========================================
+def load_menu_dict(path=MENU_FILE_PATH):
+    global _cached_menu_dict
+    if _cached_menu_dict is not None:
+        return _cached_menu_dict
+
+    if not Path(path).exists():
+        raise FileNotFoundError(f"❌ 메뉴 파일 없음: {path}")
+
+    with open(path, "r", encoding="utf-8") as f:
+        _cached_menu_dict = json.load(f)
+
+    print(f"[INFO] MENU_DICT 최초 로드 완료 (size={len(_cached_menu_dict)})")
+    return _cached_menu_dict
+
+def tokenize_korean(text: str) -> list[str]:
+    return re.findall(r"[가-힣A-Za-z0-9]+", text)
+
+def rewrite_with_dictionary(question: str, dictionary: dict, threshold: int = 80) -> str:
+    tokens = tokenize_korean(question)
+    best_match, best_score, best_category = None, 0, None
+
+    for category, keywords in dictionary.items():
+        for kw in keywords:
+            if question.strip() == kw:
+                return f"[{category}] {question}"
+            if len(kw) > 1 and kw in tokens:
+                return f"[{category}] {question}"
+            score = fuzz.partial_ratio(kw, question)
+            if score > best_score:
+                best_match, best_score, best_category = kw, score, category
+
+    if best_match and best_score >= threshold:
+        return f"[{best_category}] {question} (※ {best_match} 로 인식)"
+    return question
+
+def get_dictionary_chain():
+    llm = get_llm()
+    template = """
+    너는 '질문 재작성기' 역할을 한다. 사전(dictionary)의 키워드와 대메뉴 정보를 참고해 사용자의 질문을 더 명확하고 구체적인 "질문 문장"으로 다시 작성한다.
+
+    규칙:
+    - 반드시 질문 형태로 출력한다. (답변 금지)
+    - 질문을 구체적으로 만들어라. ("왜 그런지", "메뉴얼 기반으로 설명해주세요" 등을 붙여라)
+    - 대메뉴 태그가 있으면 질문에 포함시켜라.
+    - 불필요하게 길게 풀지 말고, 한 문장 안에서 간결하지만 구체적으로 표현해라.
+
+    예시:
+    입력: [입주자] 차량등록은 어디서해?
+    출력: 입주자 메뉴에서 차량등록은 어디서 하는지 메뉴얼을 기반으로 구체적으로 설명해주세요.
+    입력: [수납] 연체료는 어디서 확인해?
+    출력: 수납 메뉴에서 연체료는 어디서 확인하는지 메뉴얼을 기반으로 알려주세요.
+    입력: [입주자] 중간정산할때 전기검침 사용량입력 후 계산을 하면 금액이 안맞아요
+    출력: 입주자 메뉴에서 중간정산 시 전기검침 사용량 입력 후 계산 금액이 왜 맞지 않는지 메뉴얼에 기반해서 구체적으로 설명해주세요.
+
+    [사전] {dictionary}
+    [사용자질문] {question}
+    """.strip()
+
+    prompt = ChatPromptTemplate.from_template(template)
+    return prompt | llm | StrOutputParser()
+
+def process_question(question: str):
+    dictionary = load_menu_dict()   # ✅ 최초 1회만 로드, 이후 캐시 사용
+    rewritten = rewrite_with_dictionary(question, dictionary)
+
+    if rewritten != question:
+        try:
+            dict_chain = get_dictionary_chain()
+            llm_rewrite = dict_chain.invoke({
+                "dictionary": json.dumps(dictionary, ensure_ascii=False, indent=2),
+                "question": rewritten
+            })
+            if llm_rewrite:
+                return llm_rewrite
+        except Exception as e:
+            print(f"[WARN] 2차 보정 실패: {e}")
+        return rewritten
+
+    return question
+
+# =========================================
+# RAG 체인
+# =========================================
 def get_history_retriever():
-    start = time.perf_counter()
     llm = get_llm()
     retriever = get_retriever()
-
-    contextualize_q_system_prompt = (
+    system_prompt = (
         "Given a chat history and the latest user question "
         "which might reference context in the chat history, "
         "formulate a standalone question which can be understood "
         "without the chat history. Do NOT answer the question, "
         "just reformulate it if needed and otherwise return it as is."
     )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}")
+    ])
+    return create_history_aware_retriever(llm, retriever, prompt)
 
-    contextualize_q_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", contextualize_q_system_prompt),
-            MessagesPlaceholder("chat_history"),
-            ("human", "{input}"),
-        ]
-    )
-
-    history_aware_retriever = create_history_aware_retriever(
-        llm, retriever, contextualize_q_prompt
-    )
-    elapsed = (time.perf_counter() - start) * 1000
-    return history_aware_retriever
-
-# 4. LLM(챗봇) 인스턴스 생성 → vLLM(OpenAI 호환) (전역 캐싱)
-def get_llm():
-    global _cached_llm
-    if _cached_llm is None:
-        start = time.perf_counter()
-        _cached_llm = ChatOpenAI(
-            base_url=VLLM_BASE_URL,
-            api_key=OPENAI_API_KEY,
-            model=MODEL_LLM,
-        )
-        elapsed = (time.perf_counter() - start) * 1000
-    return _cached_llm
-
-# 6. RAG 체인 (전역 캐싱)
 def get_rag_chain():
     global _cached_rag_chain
-    if _cached_rag_chain is not None:
+    if _cached_rag_chain:
         return _cached_rag_chain
 
-    start = time.perf_counter()
     llm = get_llm()
-
-    # ✅ 예시를 클린업해서 사용
-    cleaned_examples = sanitize_examples(answer_examples)
-
-    example_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("human", "{input}"),
-            ("ai", "{answer}"),
-        ]
-    )
-    few_shot_prompt = FewShotChatMessagePromptTemplate(
-        example_prompt=example_prompt,
-        examples=cleaned_examples,
-    )
+    examples = [
+        {"input": ex.get("input", ""), "answer": re.sub(r"\(출처:[^)]+\)", "", ex.get("answer", ""))}
+        for ex in answer_examples
+    ]
+    example_prompt = ChatPromptTemplate.from_messages([("human", "{input}"), ("ai", "{answer}")])
+    few_shot = FewShotChatMessagePromptTemplate(example_prompt=example_prompt, examples=examples)
 
     system_prompt = (
-           """
-           당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.
-           사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.
-           당신의 임무는 다음 문서를 기반으로 사용자의 질문에 대해 가장 정확하고 실무적인 답변을 제공하는 것입니다:
-           1) 질문(Q)과 답변(A), 키워드(T)가 포함된 QnA 문서
-           2) PDF 매뉴얼 및 기타 텍스트 설명 문서
+            """
+            당신은 Xperp 프로그램에 대한 전문 상담 챗봇입니다.
+            사용자는 Xperp의 사용법, 기능, 오류 해결 등에 대해 질문합니다.
+            당신의 임무는 아래 문서를 기반으로 가장 정확하고 실무적인 답변을 제공하는 것입니다:
+            1) 질문(Q)과 답변(A), 키워드(T)가 포함된 QnA 문서
+            2) PDF 매뉴얼 및 기타 텍스트 설명 문서
 
-           답변 구성 방식 (qna.txt 우선):
+            답변 구성 방식 (qna.txt 우선):
            - 사용자의 질문이 qna.txt 문서에 존재하거나 키워드를 참고하여 유사한 항목이 있다면, 해당 A 내용을 우선적으로 정리하여 답변의 맨 처음에 제공합니다.
-           - 이후 PDF 매뉴얼 등 기타 문서를 참고하여 보완 설명을 이어서 작성하고, PDF 매뉴얼에 근거가 없는경우 qna.txt 문서의 A 내용만 제공합니다.
+           - 이후 PDF 매뉴얼 등 기타 문서를 참고하여 보완 설명을 이어서 작성합니다.
            - 문서에 따라 아래 형식을 기준으로 정돈된 답변을 가독성을 고려하여 작성하세요:
 
-           📝 질문에 대한 정식 답변:
-           - 문서를 기반으로 질문의 개념, 목적, 동작 원리를 상세히 설명합니다.
-           - 실무자가 오해할 수 있는 지점이나 자주 묻는 상황도 함께 안내합니다.
+            답변 작성 규칙:
+            - 답변 템플릿은 다음 중 하나를 선택하세요:
+              1) [알려드릴게요 + 짧게 요약하면] → 단순 개념/이유 설명
+              2) [알려드릴게요 + 이렇게 해보세요] → 메뉴 경로나 절차 안내
+              3) [알려드릴게요 + 짧게 요약하면 + 꼭 알아두세요] → 오류/주의사항 관련
+            - 질문 성격에 따라 가장 적절한 템플릿을 사용하세요.
+            - 불필요한 섹션은 포함하지 마세요.
 
-           ⚡ 간단 요약:
-           - 핵심 개념을 1~2줄 이내로 정리합니다.
+            ### 각 섹션 작성 상세 지침:
+            - `### 알려드릴게요`
+              - 문서를 기반으로 질문의 개념, 목적, 동작 원리를 상세히 설명합니다.
+              - 실무자가 오해할 수 있는 지점이나 자주 묻는 상황도 함께 안내합니다.
+              - 한 문장이 끝나면 줄바꿈을 통해 가독성을 높여주세요.
 
-           📌 사용법 안내:
-           - 메뉴 경로, 설정 방법, 입력 절차를 문서에 있는 내용으로 단계별로 작성하세요.
-           - 화면 위치 정보도 가능한 경우 포함합니다.
-           - 답변 예시의 프롬프트는 참고사항이니, 매뉴얼에 기반한 정보만 정확하게 안내해주세요.
-           - 의미없는 특수문제는 제거하고, 최대한 깔끔하게 표현해주세요.
+            - `### 짧게 요약하면`
+              - 핵심 개념을 1~2줄 이내로 정리합니다.
 
-           ⚠️ 유의사항:
-           - 실무 중 자주 발생하는 실수나 예외 상황, 기능 제약사항 등을 구체적으로 기술합니다.
-           - 사용자가 놓치기 쉬운 조건이나 확인 항목도 함께 제시하세요.
+            - `### 이렇게 해보세요`
+              1. 메뉴 경로, 설정 방법, 입력 절차를 문서에 있는 내용으로 단계별로 작성하세요.
+              2. 화면 위치 정보도 가능한 경우 포함합니다.
+              3. 메뉴 경로는 절대 유추하지말고 문서에 있는 내용으로만 답변해주세요.
 
-           💡 추가 설명이 필요한 경우:
-           - 위 1~4 항목 이외에도 사용자가 실무에서 궁금해할 만한 내용을 예상하여 추가 설명을 제공하세요.
-           - 예: 연동된 기능, 관련된 다른 메뉴, 설정 영향 범위, 오류 메시지 발생 원인 등
-           - 반드시 문서를 참고하여 실제로 연관된 정보만 제시하세요.
+            - `### 꼭 알아두세요`
+              - 실무 중 자주 발생하는 실수나 예외 상황, 기능 제약사항 등을 구체적으로 기술합니다.
+              - 사용자가 놓치기 쉬운 조건이나 확인 항목도 함께 제시하세요.
 
-           ❓ 예상 질문:
-           - 사용자가 이어서 궁금해할 수 있는 내용을 1~3개 문장으로 제시하세요.
-           - qna와 매뉴얼에서 답변할 수 있는 내용을 발췌하여 제시하세요.
-           - qna와 매뉴얼에 나온 예상질문이 추가로 없다면, 예상질문을 생략해주세요.
+            ### 매뉴얼 참조 출력 지침:
+            - 반드시 'context'의 문서 metadata(source/page)에서만 출처를 가져오세요.
+            - few-shot 예시 안의 출처/페이지 표기는 무시하세요.
+            - 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.
 
-           📖 매뉴얼 참조 출력 지침:
-           - 아래 조건을 반드시 지켜야 합니다:
-             1. 반드시 'context'의 문서 metadata(source/page)에서만 출처를 가져오세요.
-             2. few-shot 예시(answer_examples) 안의 출처/페이지 표기는 모두 무시하세요. (형식 예시일 뿐 실제 인용 아님)
-             3. 문서명이나 페이지를 임의로 추측하거나 생성하지 마세요.
-             4. 각 설명이 어떤 문서에서 유래했는지 사용자에게 명확히 전달해야 합니다.
+            출력 형식 규칙(매우 중요):
+            - 반드시 Markdown을 사용하세요.
+            - 각 섹션 제목은 무조건 `### 제목` 형식을 사용하세요.
+            - 본문에는 `**굵게**` 마크다운을 사용하지 마세요. (제만 굵게)
+            - 한 문장이 끝나면 줄바꿈을 통해 가독성을 높이세요.
 
-           - 사용법 안내 등의 답변 본문에서도 관련 설명 끝에 (출처: 문서명 n페이지) 형식으로 표시해 주세요.
-           - 본문 내용에 참조한 문서가 있을 경우 매뉴얼 참조 항목은 반드시 표시해주세요.
-           - qna.txt 의 데이터를 참조했다고 표시할 예정이라면 매뉴얼참조 출력을 생략해주세요.
+            ✅ 질문과 직접 관련된 XPERP 정보가 없거나, 문서에서 근거를 찾을 수 없는 경우:
+            - '죄송합니다. 해당 내용은 현재 안내드릴 수 있는 범위를 벗어난 항목입니다.\n
+            본 챗봇 서비스는 XpERP 사용과 관련한 답변만 제공하도록 설계되어 있습니다.\n
+            XpERP와 관련한 질의가 있으시면 다시 질문해주시길 바랍니다.'
 
-           출력 형식 규칙(매우 중요):
-           - 반드시 Markdown을 사용하세요.
-           - 각 섹션 제목(예: '📝 질문에 대한 정식 답변:') 뒤에는 빈 줄 1개를 두세요.
-           - '사용법 안내'는 번호 목록(1., 2., 3., ...)으로, 항목마다 새 줄에서 시작하세요.
-           - '유의사항', '예상 질문'은 불릿 목록(- )으로, 항목마다 새 줄에서 시작하세요.
-           - 한 줄에 여러 항목을 이어 쓰지 마세요. 각 항목은 반드시 줄바꿈으로 구분합니다.
-           - 한 문장이 끝나면 줄바꿈하여 답변의 가독성이 좋도록 구성해주세요.
-
-            "✅ 반드시 위 형식에 맞춰 응답을 구성하세요.\n"
-            "✅ 질문과 직접 관련된 XPERP 정보가 없거나, 학습된 문서에서 근거를 찾을 수 없는 경우에는 반드시 다음 중 한 문구를 사용하세요:\n"
-            "- '죄송합니다. 해당 내용은 현재 안내드릴 수 있는 범위를 벗어난 항목입니다.'\n"
-            "- '문의하신 내용은 현재 자료 기준으로는 확인이 어려운 점 양해 부탁드립니다.'\n"
-            "- '현재로서는 정확한 안내가 어려운 내용입니다. 조금 더 구체적으로 문의주시면 확인해보겠습니다.'\n"
-            "✅ 과한 말투, 반복 설명 없이 실무 중심 정보로 명확하게 작성하세요.\n\n"
-
-           {context}
-           """
+             {context}
+            """
     )
 
-    qa_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            few_shot_prompt,
-            MessagesPlaceholder("chat_history"),
-            ("human", "{input}"),
-        ]
-    )
+    qa_prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        few_shot,
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}")
+    ])
 
-    history_aware_retriever = get_history_retriever()
-    question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+    retriever = get_history_retriever()
+    chain = create_stuff_documents_chain(llm, qa_prompt)
+    rag_chain = create_retrieval_chain(retriever, chain)
 
     _cached_rag_chain = RunnableWithMessageHistory(
         rag_chain,
@@ -347,29 +341,57 @@ def get_rag_chain():
         input_messages_key="input",
         history_messages_key="chat_history",
         output_messages_key="answer",
-    ).pick('answer')
+    ).pick("answer")
 
-    elapsed = (time.perf_counter() - start) * 1000
     return _cached_rag_chain
 
+# =========================================
+# 최종 응답 함수
+# =========================================
+def get_ai_response(user_message: str, session_id: str):
+    if not session_id:
+        raise ValueError("session_id is required.")
 
-# 7. 최종 답변 생성 함수
-def get_ai_response(user_message):
-    start = time.perf_counter()
+    # ✅ 세션 강제 초기화: 같은 session_id라도 항상 새로운 히스토리로 시작
+    session_store.store.pop(session_id, None)
+    session_store.session_timestamps.pop(session_id, None)
+
     rag_chain = get_rag_chain()
 
-    # ✅ 'input' 키로 전달
+    try:
+        effective_message = process_question(user_message)
+    except Exception as e:
+        print(f"[WARN] 질문 보정 실패: {e}")
+        effective_message = user_message
+
+#     yield f"🔧 보정된 질문: {effective_message}\n\n"
+
+    start = time.perf_counter()
     stream = rag_chain.stream(
-        {"input": user_message},
-        config={"configurable": {"session_id": "abc123"}},
+        {"input": effective_message},
+        config={"configurable": {"session_id": session_id}},
     )
+    for chunk in stream:
+        yield chunk
 
-    def timed_stream():
-        inner_start = time.perf_counter()
-        for chunk in stream:
-            yield chunk
-        elapsed_inner = time.perf_counter() - inner_start
-        yield f"\n\n⏱ 소요시간: {elapsed_inner:.2f}s"
+    yield f"\n\n⏱ 소요시간: {time.perf_counter() - start:.2f}초"
 
-    elapsed = (time.perf_counter() - start) * 1000
-    return timed_stream()
+# =========================================
+# 유틸
+# =========================================
+def cleanup_resources():
+    global _cached_embeddings, _cached_retriever, _cached_llm, _cached_rag_chain, _cached_fingerprint
+    _cached_embeddings = _cached_retriever = _cached_llm = _cached_rag_chain = _cached_fingerprint = None
+    session_store.store.clear()
+    session_store.session_timestamps.clear()
+    print("[INFO] 모든 캐시 및 세션 리소스 정리 완료")
+
+def get_cache_info():
+    return {
+        "embeddings_cached": _cached_embeddings is not None,
+        "retriever_cached": _cached_retriever is not None,
+        "llm_cached": _cached_llm is not None,
+        "rag_chain_cached": _cached_rag_chain is not None,
+        "fingerprint": _cached_fingerprint,
+        "active_sessions": len(session_store.store)
+    }

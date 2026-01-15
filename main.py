@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import uvicorn
-from llm import get_ai_response
+from llm import get_ai_response, get_cache_info
 import asyncio
 import json, os, requests   # ✅ requests 추가
 
@@ -30,8 +30,12 @@ async def read_root(request: Request):
 
 # ✅ 채팅 API 엔드포인트 (스트리밍 버전)
 @app.post("/chat")
-async def chat(message: str = Form(...)):
-    ai_response_generator = get_ai_response(message)
+async def chat(message: str = Form(...), session_id: str = Form(None)):
+    # FE가 반드시 session_id를 넘기게 하고, 없으면 에러 리턴(개발 중엔 기본값 줄 수도 있음)
+    if not session_id:
+        return PlainTextResponse("session_id is required", status_code=400)
+
+    ai_response_generator = get_ai_response(message, session_id=session_id)
 
     async def event_stream():
         for chunk in ai_response_generator:
@@ -49,8 +53,7 @@ async def chat_test(message: str = Form(...)):
     for chunk in ai_response_generator:
         chunks.append(chunk)
     return PlainTextResponse("".join(chunks))
-
-
+# ✅ 사용자 피드백 저장 API
 # ✅ 사용자 피드백 저장 API
 @app.post("/feedback")
 async def feedback(data: dict = Body(...)):
@@ -64,6 +67,7 @@ async def feedback(data: dict = Body(...)):
 
     # 2) 👎 down 피드백이면 Slack 알림 전송
     if data.get("feedback") == "down" and SLACK_WEBHOOK_URL:
+        user_name = data.get("name", "익명")   # ✅ 이름 필드 (없으면 '익명')
         message = {
             "blocks": [
                 {
@@ -74,7 +78,7 @@ async def feedback(data: dict = Body(...)):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*🙋 질문:*\n>{data.get('message')}"
+                        "text": f"*🙋 질문자:* {user_name}\n*🙋 질문:*\n>{data.get('message')}"
                     }
                 },
                 {
@@ -91,6 +95,13 @@ async def feedback(data: dict = Body(...)):
                         "text": f":warning: *사유:*\n```{data.get('reason', '사유 미작성')}```"
                     }
                 },
+                {   # ✅ 코멘트 추가
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"✍️ *코멘트:*\n>{data.get('comment', '코멘트 없음')}"
+                    }
+                },
                 {
                     "type": "context",
                     "elements": [
@@ -104,10 +115,10 @@ async def feedback(data: dict = Body(...)):
         except Exception as e:
             print(f"Slack 전송 오류: {e}")
 
-
     return {"status": "ok"}
+
 
 
 # 서버 실행 (개발용)
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5050)
+    uvicorn.run(app, host="0.0.0.0", port=8501)
